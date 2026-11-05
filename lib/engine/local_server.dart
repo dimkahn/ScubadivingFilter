@@ -79,6 +79,9 @@ class LocalServer {
 
   Future<void> _handle(HttpRequest req) async {
     final res = req.response;
+    // Isolation cross-origin : sans elle, ONNX Runtime n'a pas droit aux threads WASM.
+    res.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+    res.headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
     try {
       final seg = req.uri.pathSegments;
       if (seg.isEmpty || seg.first != _token) {
@@ -110,6 +113,9 @@ class LocalServer {
   static const _mime = {
     'html': 'text/html; charset=utf-8',
     'js': 'text/javascript; charset=utf-8',
+    // ONNX Runtime importe son module et compile son WASM : le type doit être exact.
+    'mjs': 'text/javascript; charset=utf-8',
+    'wasm': 'application/wasm',
   };
 
   Future<void> _serveAsset(HttpResponse res, String path) async {
@@ -135,11 +141,16 @@ class LocalServer {
     final lower = path.toLowerCase();
     // Les MOV sont déclarés en MP4 : Chromium refuse parfois video/quicktime alors
     // que le contenu est le même conteneur ISO.
-    final type = lower.endsWith('.webm')
-        ? 'video/webm'
-        : lower.endsWith('.mkv')
-            ? 'video/x-matroska'
-            : 'video/mp4';
+    final type = switch (lower.split('.').last) {
+      'webm' => 'video/webm',
+      'mkv' => 'video/x-matroska',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'heic' => 'image/heic',
+      'heif' => 'image/heif',
+      _ => 'video/mp4',
+    };
     res.headers.set(HttpHeaders.contentTypeHeader, type);
     res.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
 

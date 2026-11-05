@@ -2,7 +2,7 @@
     <!-- Connexion au serveur local du moteur vidéo uniquement (127.0.0.1) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="Rouge Retrouvé"
+        android:label="Scuba See Red"
         android:networkSecurityConfig="@xml/network_security_config"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

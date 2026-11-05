@@ -6,6 +6,20 @@ import 'package:video_player/video_player.dart';
 import '../theme.dart';
 
 /// Lecture plein écran d'une vidéo exportée, pour vérifier le résultat avant de l'enregistrer.
+/// Résultat d'un export de photo : on peut zoomer pour juger de la correction.
+class PhotoViewer extends StatelessWidget {
+  const PhotoViewer({super.key, required this.file, required this.title});
+  final File file;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(title: Text(title, overflow: TextOverflow.ellipsis)),
+        body: InteractiveViewer(maxScale: 8, child: Center(child: Image.file(file))),
+      );
+}
+
 class ResultPlayer extends StatefulWidget {
   const ResultPlayer({super.key, required this.file, required this.title});
   final File file;

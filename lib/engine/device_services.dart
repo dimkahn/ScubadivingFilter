@@ -13,7 +13,7 @@ class PlatformDeviceServices implements DeviceServices {
 
   @override
   Future<List<PickedVideo>> pickVideos() async {
-    final files = await FilePicker.pickFiles(type: FileType.video);
+    final files = await FilePicker.pickFiles(type: FileType.media);
     return [
       for (final f in files)
         if (f.path != null) PickedVideo(f.path!, f.name, File(f.path!).lengthSync()),

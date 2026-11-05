@@ -56,7 +56,7 @@ class RougeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'Rouge Retrouvé',
+        title: 'Scuba See Red',
         debugShowCheckedModeBanner: false,
         theme: buildTheme(),
         home: HomeScreen(state: state, surface: surface),

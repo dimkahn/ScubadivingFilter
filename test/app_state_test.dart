@@ -183,6 +183,72 @@ void main() {
     expect(fmtSize(5 * 1048576), '5,0 Mo');
     expect(fmtSize(2.5 * 1073741824), '2,5 Go');
   });
+
+  group('extrait et photo', () {
+    void load(String name) {
+      s.addPicked([PickedVideo('/v/$name', name, 10)]);
+    }
+
+    test('une image est reconnue et envoyée comme telle', () {
+      load('fond.JPG');
+      final it = s.current!;
+      expect(it.isImage, isTrue);
+      expect(it.toCmd()['kind'], 'image');
+      s.setTrim(1, 2); // sans effet sur une image
+      expect(it.isTrimmed, isFalse);
+    });
+
+    test("l'extrait se règle et part avec la commande d'export", () async {
+      load('a.mp4');
+      final it = s.current!;
+      s.handleEvent({'type': 'probe', 'id': it.id, 'dur': 42.0});
+      s.setTrim(5, 12);
+      expect(it.clipDuration, 7);
+      unawaited(s.exportCurrent());
+      await Future<void>.delayed(Duration.zero);
+      final c = engine.commands('export').last['item'] as Map<String, Object?>;
+      expect(c['in'], 5);
+      expect(c['out'], 12);
+      s.handleEvent({'type': 'exportDone', 'id': it.id, 'ext': 'mp4', 'bytes': 9, 'time': 1.0});
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(it.output!.path, endsWith('a-extrait.mp4'));
+    });
+
+    test('début après la fin : la fin est repoussée, et toute la vidéo annule le réglage', () {
+      load('a.mp4');
+      final it = s.current!;
+      s.handleEvent({'type': 'probe', 'id': it.id, 'dur': 42.0});
+      s.setTrim(5, 12);
+      s.handleEvent(tick(t: 20, d: 42));
+      s.markIn();
+      expect(it.trimIn, 20);
+      expect(it.trimOut, isNull);
+      s.clearTrim();
+      expect(it.isTrimmed, isFalse);
+      expect(it.toCmd().containsKey('in'), isFalse);
+    });
+
+    test('photo : enregistrée dans la galerie, un seul envoi à la fois', () async {
+      load('a.mp4');
+      s.takeSnapshot();
+      s.takeSnapshot();
+      expect(engine.commands('snapshot').length, 1);
+      final id = engine.commands('snapshot').first['id'];
+      s.handleEvent({'type': 'snapshotDone', 'id': id, 'bytes': 9, 'w': 10, 'h': 10, 't': 12.34});
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(device.saved.single, 'a-photo-12_3s.jpg');
+      expect(s.snapping, isFalse);
+    });
+
+    test('photo en échec : message et sortie partielle supprimée', () async {
+      load('a.mp4');
+      s.takeSnapshot();
+      final id = engine.commands('snapshot').first['id'];
+      s.handleEvent({'type': 'snapshotError', 'id': id, 'msg': 'non'});
+      expect(s.snapping, isFalse);
+      expect(host.discarded, contains(id));
+    });
+  });
 }
 
 void unawaited(Future<void> f) {}

@@ -19,6 +19,23 @@ class _TransportState extends State<Transport> {
   Widget build(BuildContext context) {
     final s = widget.state;
     if (s.mode != 'normal') return _ModeBar(state: s);
+    final compareButton = IconButton(
+      tooltip: s.compare ? 'Masquer l\'avant/après' : 'Afficher l\'avant/après',
+      isSelected: s.compare,
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 52),
+      selectedIcon: Icon(Icons.compare, color: s.exporting ? C.line : C.accent),
+      icon: Icon(Icons.compare, color: s.exporting ? C.line : C.muted),
+      onPressed: s.exporting ? null : () => s.setCompare(!s.compare),
+    );
+    if (s.current?.isImage ?? false) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(children: [
+          Expanded(child: Text('Photo', style: T.body(14))),
+          compareButton,
+        ]),
+      );
+    }
     return ValueListenableBuilder(
       valueListenable: s.playback,
       builder: (context, p, _) {
@@ -54,13 +71,13 @@ class _TransportState extends State<Transport> {
             ),
             Text('${fmtTime(t)} / ${fmtTime(p.d)}', style: T.mono(12)),
             IconButton(
-              tooltip: s.compare ? 'Masquer l\'avant/après' : 'Afficher l\'avant/après',
-              isSelected: s.compare,
+              tooltip: 'Extraire une photo',
               constraints: const BoxConstraints(minWidth: 48, minHeight: 52),
-              selectedIcon: Icon(Icons.compare, color: s.exporting ? C.line : C.accent),
-              icon: Icon(Icons.compare, color: s.exporting ? C.line : C.muted),
-              onPressed: s.exporting ? null : () => s.setCompare(!s.compare),
+              icon: Icon(Icons.photo_camera_outlined,
+                  color: s.current == null || s.exporting || s.snapping ? C.line : C.fg),
+              onPressed: s.current == null || s.exporting || s.snapping ? null : s.takeSnapshot,
             ),
+            compareButton,
           ]),
         );
       },

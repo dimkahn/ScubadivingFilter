@@ -67,7 +67,30 @@ class VideoItem {
   bool muted = false;
   bool saved = false;
 
-  Map<String, Object?> toCmd() => {'id': id, 'url': url, 'name': name, 'size': size};
+  /// Extrait à exporter ; [trimOut] nul signifie jusqu'à la fin.
+  double trimIn = 0;
+  double? trimOut;
+
+  /// Photos extraites de cette vidéo, supprimées avec elle.
+  final photos = <File>[];
+
+  static const _imageExt = {'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'};
+  bool get isImage => _imageExt.contains(name.split('.').last.toLowerCase());
+  bool get isTrimmed => trimIn > 0 || trimOut != null;
+  double get clipDuration => isImage ? 0 : (trimOut ?? duration) - trimIn;
+  String get formatError => isImage
+      ? 'Format non pris en charge par cet appareil (essayez JPEG)'
+      : 'Format non pris en charge par cet appareil (essayez MP4 H.264)';
+
+  Map<String, Object?> toCmd() => {
+        'id': id,
+        'url': url,
+        'name': name,
+        'size': size,
+        'kind': isImage ? 'image' : 'video',
+        if (trimIn > 0) 'in': trimIn,
+        if (trimOut != null) 'out': trimOut,
+      };
 }
 
 class Playback {
@@ -153,6 +176,9 @@ class AppState extends ChangeNotifier {
   bool importing = false;
   bool _stopBatch = false;
   int _nextId = 0;
+  int _nextPhoto = 0;
+  bool snapping = false;
+  final _snapshots = <String, VideoItem>{};
   Completer<bool>? _exportDone;
 
   bool get exporting => running != null;
@@ -165,10 +191,17 @@ class AppState extends ChangeNotifier {
 
   double get totalDuration => queue
       .where((i) => i.status != ItemStatus.err)
-      .fold(0.0, (s, i) => s + i.duration);
+      .fold(0.0, (s, i) => s + i.clipDuration);
   double get doneDuration => queue.where((i) => i.status != ItemStatus.err).fold(
-      0.0, (s, i) => s + i.duration * (i.status == ItemStatus.done ? 1 : i.progress));
-  double get overallProgress => totalDuration > 0 ? doneDuration / totalDuration : 0;
+      0.0, (s, i) => s + i.clipDuration * (i.status == ItemStatus.done ? 1 : i.progress));
+  // Une image compte pour une seconde : elle n'a pas de durée, mais la liste doit quand même avancer.
+  double _weight(VideoItem i) => i.isImage ? 1 : i.clipDuration;
+  double get overallProgress {
+    final items = queue.where((i) => i.status != ItemStatus.err);
+    final total = items.fold(0.0, (s, i) => s + _weight(i));
+    if (total <= 0) return 0;
+    return items.fold(0.0, (s, i) => s + _weight(i) * (i.status == ItemStatus.done ? 1 : i.progress)) / total;
+  }
 
   /// Secondes restantes estimées pendant l'export, d'après la vitesse courante.
   double get remainingSeconds {
@@ -228,7 +261,7 @@ class AppState extends ChangeNotifier {
         _item(e['id'])?.let((it) {
           if (it.status != ItemStatus.run) {
             it.status = ItemStatus.err;
-            it.error = 'Format non pris en charge par cet appareil (essayez MP4 H.264)';
+            it.error = it.formatError;
           }
           if (current == it) _showDemo();
           notifyListeners();
@@ -247,6 +280,14 @@ class AppState extends ChangeNotifier {
         _item(e['id'])?.let((it) => _endExport(it, ItemStatus.err, error: e['msg'] as String? ?? 'Erreur'));
       case 'exportStopped':
         _item(e['id'])?.let((it) => _endExport(it, ItemStatus.wait));
+      case 'snapshotDone':
+        unawaited(_onSnapshot(e));
+      case 'snapshotError':
+        _snapshots.remove(e['id']);
+        unawaited(host.discardOutput(e['id'] as String));
+        snapping = false;
+        _say('Photo impossible : ${e['msg']}');
+        notifyListeners();
       case 'log':
         debugPrint('moteur : ${e['msg']}');
     }
@@ -303,7 +344,7 @@ class AppState extends ChangeNotifier {
     if (th != null) it.thumb = base64Decode(th);
     if (e['err'] != null && it.status == ItemStatus.wait) {
       it.status = ItemStatus.err;
-      it.error = 'Format non pris en charge par cet appareil (essayez MP4 H.264)';
+      it.error = it.formatError;
     }
     notifyListeners();
   }
@@ -501,6 +542,69 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------- Extrait ----------
+  static const minClip = .1;
+
+  void setTrim(double start, double? end) {
+    final it = current;
+    if (it == null || it.isImage || exporting) return;
+    final d = it.duration;
+    if (d <= minClip) return;
+    final a = start.clamp(0.0, d - minClip);
+    final b = (end ?? d).clamp(a + minClip, d);
+    it.trimIn = a <= .01 ? 0 : a;
+    it.trimOut = b >= d - .01 ? null : b;
+    notifyListeners();
+  }
+
+  void markIn() {
+    final it = current;
+    if (it == null) return;
+    final t = playback.value.t;
+    final end = it.trimOut;
+    // Un début placé après la fin repousse celle-ci plutôt que d'être refusé.
+    setTrim(t, end != null && end > t + minClip ? end : null);
+  }
+
+  void markOut() {
+    final it = current;
+    if (it == null) return;
+    final t = playback.value.t;
+    setTrim(it.trimIn < t - minClip ? it.trimIn : 0, t);
+  }
+
+  void clearTrim() => setTrim(0, null);
+
+  // ---------- Photo ----------
+  void takeSnapshot() {
+    final it = current;
+    if (it == null || exporting || snapping) return;
+    final id = '${it.id}-photo-${++_nextPhoto}';
+    _snapshots[id] = it;
+    snapping = true;
+    engine.send({'c': 'snapshot', 'id': id});
+    notifyListeners();
+  }
+
+  Future<void> _onSnapshot(Map<String, dynamic> e) async {
+    final id = e['id'] as String;
+    final it = _snapshots.remove(id);
+    try {
+      if (it == null) throw StateError('vidéo retirée');
+      final base = it.name.contains('.') ? it.name.substring(0, it.name.lastIndexOf('.')) : it.name;
+      final at = (e['t'] as num).toStringAsFixed(1).replaceAll('.', '_');
+      final file = await host.finishOutput(id, '$base-photo-${at}s.jpg');
+      it.photos.add(file);
+      await device.saveToGallery(file.path, file.uri.pathSegments.last);
+      _say('Photo enregistrée dans la galerie.', actionLabel: 'Partager', action: () => unawaited(device.share(file.path)));
+    } catch (err) {
+      _say('Photo impossible : $err');
+    } finally {
+      snapping = false;
+      notifyListeners();
+    }
+  }
+
   void _showDemo() {
     current = null;
     engine.send({'c': 'demo'});
@@ -511,6 +615,9 @@ class AppState extends ChangeNotifier {
     queue.remove(it);
     host.unregisterSource(it.id);
     _deleteOutput(it);
+    for (final f in it.photos) {
+      if (f.existsSync()) f.deleteSync();
+    }
     if (current == it) _showDemo();
     notifyListeners();
   }
@@ -568,7 +675,7 @@ class AppState extends ChangeNotifier {
     final errors = queue.where((i) => i.status == ItemStatus.err).length;
     tool = Tool.videos;
     _say(
-      '${_stopBatch ? 'Export arrêté. ' : ''}$n ${n > 1 ? 'vidéos exportées' : 'vidéo exportée'}'
+      '${_stopBatch ? 'Export arrêté. ' : ''}$n ${n > 1 ? 'fichiers exportés' : 'fichier exporté'}'
       '${errors > 0 ? ', $errors en erreur' : ''}.',
       actionLabel: unsavedCount > 0 ? 'Tout enregistrer' : null,
       action: unsavedCount > 0 ? saveAll : null,
@@ -604,7 +711,8 @@ class AppState extends ChangeNotifier {
     if (it == null) return;
     try {
       final base = it.name.contains('.') ? it.name.substring(0, it.name.lastIndexOf('.')) : it.name;
-      it.output = await host.finishOutput(it.id, '$base-corrigee.${e['ext']}');
+      final suffix = it.isTrimmed && !it.isImage ? '-extrait' : '-corrigee';
+      it.output = await host.finishOutput(it.id, '$base$suffix.${e['ext']}');
       it.outputBytes = (e['bytes'] as num).toInt();
       it.exportTime = (e['time'] as num).toDouble();
       it.muted = e['muted'] as bool? ?? false;

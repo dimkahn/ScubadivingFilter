@@ -27,11 +27,16 @@ ff('-f', 'lavfi', '-i', 'color=c=0x204060:s=1280x720:r=30:d=4', '-f', 'lavfi', '
    '-filter_complex', "[0]noise=alls=12:allf=p[b];[1]drawbox=x=20:y=20:w=40:h=40:c=black:t=fill[f];[b][f]overlay=x='100+250*t':y=320",
    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', moving);
 
+// Photo bleutée, plus grande que l'écran.
+const photo = join(W, 'plongee.jpg');
+ff('-f', 'lavfi', '-i', 'testsrc2=s=1600x1200:r=1:d=1,colorchannelmixer=rr=.35:gg=.9:bb=1', '-frames:v', '1', '-update', '1', photo);
+
 // ---------- Serveur et navigateur ----------
 const outDir = join(W, 'out');
-const srv = spawn('dart', ['tool/engine_e2e/serve.dart', outDir, land, portrait, webm, moving], {stdio: ['ignore', 'pipe', 'inherit']});
+const srv = spawn('dart', ['tool/engine_e2e/serve.dart', outDir, land, portrait, webm, moving, photo], {stdio: ['ignore', 'pipe', 'inherit']});
 const info = await new Promise(res => srv.stdout.once('data', d => res(JSON.parse(String(d)))));
-const [L, P, Wb, M] = info.sources;
+const [L, P, Wb, M, ImgSrc] = info.sources;
+const Img = {...ImgSrc, kind: 'image'};
 const port = 9300 + Math.floor(Math.random() * 500);
 const chrome = spawn('google-chrome', ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${join(W, 'chrome')}`,
   '--no-first-run', '--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
@@ -180,6 +185,56 @@ try {
   const wv = probe(part(Wb.id)).find(s => s.codec_type === 'video');
   check('export temps réel lisible', !!wv, wv?.codec_name);
 
+  // Extrait : de 1 s à 2,5 s, sans correction pour comparer au contenu d'origine.
+  await reload();
+  await cmd({c: 'settings', v: {strength: 0, sat: 100, bright: 100, stab: false, compare: false}});
+  done = await exportOf({...L, in: 1, out: 2.5});
+  const clipStreams = done.type === 'exportDone' ? probe(part(L.id)) : [];
+  const clipV = clipStreams.find(s => s.codec_type === 'video'), clipA = clipStreams.find(s => s.codec_type === 'audio');
+  check('extrait : conversion rapide terminée', done.type === 'exportDone' && done.mode === 'fast', JSON.stringify(done));
+  check('extrait : 45 images, soit 1,5 s', Math.abs(+clipV?.nb_frames - 45) <= 1, `nb_frames=${clipV?.nb_frames} durée=${clipV?.duration}`);
+  check('extrait : son de la même durée', !!clipA && Math.abs(+clipA.duration - 1.5) < .1, `durée son=${clipA?.duration}`);
+  const refClip = join(W, 'ref-clip.mp4');
+  ff('-ss', '1', '-t', '1.5', '-i', land, '-an', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', refClip);
+  const clipSsim = +(/All:([\d.]+)/.exec(spawnSync(part(L.id), refClip, 'ssim')) || [])[1];
+  check('extrait : bon passage de la vidéo', clipSsim > .85, `SSIM=${clipSsim}`);
+  const fullSsim = +(/All:([\d.]+)/.exec(spawnSync(part(L.id), land, 'ssim')) || [])[1];
+  check('extrait : différent du début de la vidéo', fullSsim < clipSsim, `SSIM début=${fullSsim}`);
+
+  // Photo extraite d'une vidéo : pleine résolution, sans la ligne avant/après ni le recadrage de stabilisation.
+  await reload();
+  await cmd({c: 'settings', v: {stab: true, compare: true, split: .5}});
+  await cmd({c: 'load', item: L}); await until('loaded');
+  await cmd({c: 'seek', t: 2}); await sleep(800);
+  await clear();
+  await cmd({c: 'snapshot', id: 'snap1'});
+  const snap = await until('snapshotDone', () => true, 20000);
+  const sv = probe(part('snap1'))[0];
+  check('photo : JPEG en pleine résolution', sv.codec_name === 'mjpeg' && sv.width === 1280 && sv.height === 720 && Math.abs(snap.t - 2) < .1, `${sv.codec_name} ${sv.width}x${sv.height} t=${snap.t}`);
+  check('photo : couleurs corrigées', meanStat(part('snap1'), 'signalstats', 'VAVG') > meanStat(land, 'signalstats', 'VAVG') + 10, '');
+
+  // Image en entrée : pleine résolution, corrigée, sans recadrage de stabilisation.
+  await reload();
+  await cmd({c: 'settings', v: {stab: true, compare: false}});
+  await clear();
+  await cmd({c: 'probe', item: Img});
+  const ip = await until('probe', () => true, 10000);
+  check('image : sonde dimensions et miniature', ip.w === 1600 && ip.h === 1200 && !!ip.thumb, `${ip.w}x${ip.h}`);
+  done = await exportOf(Img);
+  const iv = done.type === 'exportDone' ? probe(part(Img.id))[0] : null;
+  check('image : export JPEG en pleine résolution', iv?.codec_name === 'mjpeg' && iv.width === 1600 && iv.height === 1200 && done.ext === 'jpg', JSON.stringify(done) + ` ${iv?.width}x${iv?.height}`);
+  const photoV = meanStat(photo, 'signalstats', 'VAVG'), photoOut = meanStat(part(Img.id), 'signalstats', 'VAVG');
+  check('image : le rouge (chroma V) remonte', photoOut > photoV + 10, `V source=${photoV.toFixed(1)} sortie=${photoOut.toFixed(1)}`);
+  await cmd({c: 'load', item: Img}); await until('loaded', () => true, 5000);
+  await sleep(300); await clear();
+  const it0 = await until('tick', () => true, 3000);
+  check('image : reste affichée, sans lecture', it0.d === 0 && it0.playing === false && it0.shift === null, `d=${it0.d} playing=${it0.playing}`);
+  // Puis une vidéo : la source redevient bien la vidéo.
+  await cmd({c: 'load', item: L}); await until('loaded', e => e.id === L.id, 5000);
+  await sleep(300); await clear();
+  const it1 = await until('tick', t => t.d > 3, 3000);
+  check('image puis vidéo : retour à la vidéo', it1.src[0] === 1280, `src=${it1.src}`);
+
   // Suivi du sujet : le carré va de x≈140 à x≈1140 en 4 s
   await reload();
   await cmd({c: 'settings', v: {stab: false, compare: false}});
@@ -198,9 +253,26 @@ try {
   const worst = Math.max(...trackErrs);
   check('suivi : le sujet est suivi pendant son déplacement', trackErrs.length > 5 && worst < 80 && tk.at(-1).tr.s === 'ok', `écart max ${worst.toFixed(0)} px sur ${trackErrs.length} mesures, état=${tk.at(-1)?.tr.s}`);
 
-  // Export avec suivi : même moteur, même sujet, sortie aux dimensions du cadre
+  check('suivi : NanoTrack est bien le moteur utilisé', tk.at(-1)?.tr.e === 'nano', `moteur=${tk.at(-1)?.tr.e} confiance=${tk.at(-1)?.tr.conf}`);
+
+  // EdgeTAM : en pause, l'analyse calcule la trajectoire. Puis on se déplace dans la vidéo.
   await cmd({c: 'pause'});
   await sleep(200);
+  await clear();
+  const anaT0 = Date.now();
+  const anaDone = await until('tick', t => t.tr && t.tr.ana === 1, 300000);
+  check('EdgeTAM : l\'analyse va au bout de la vidéo', !!anaDone, `${((Date.now() - anaT0)/1000).toFixed(0)} s`);
+  const tamErrs = [];
+  for (const t of [1.2, 2.4, 0.6, 3.3]){
+    await cmd({c: 'seek', t});
+    await sleep(700);
+    await clear();
+    const tick = await until('tick', k => k.tr && k.tr.e === 'tam' && Math.abs(k.t - t) < .05, 5000);
+    tamErrs.push(Math.abs(tick.tr.x * 1280 - (140 + 250 * tick.t)));
+  }
+  check('EdgeTAM : sujet retrouvé après des déplacements dans la vidéo', Math.max(...tamErrs) < 30, `écarts ${tamErrs.map(e => e.toFixed(0)).join(', ')} px`);
+
+  // Export avec suivi : même moteur, même sujet, sortie aux dimensions du cadre
   done = await exportOf(M);
   const tv = probe(part(M.id)).find(s => s.codec_type === 'video');
   check('export avec suivi du sujet : aux dimensions du cadre', done.type === 'exportDone' && done.mode === 'fast' && tv.width === 768 && tv.height === 432, `${tv?.width}x${tv?.height}`);

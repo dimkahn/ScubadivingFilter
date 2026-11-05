@@ -42,7 +42,11 @@ import UIKit
         return
       }
       PHPhotoLibrary.shared().performChanges({
-        PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+        if url.pathExtension.lowercased() == "jpg" {
+          PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: url)
+        } else {
+          PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+        }
       }) { ok, error in
         DispatchQueue.main.async {
           if ok {

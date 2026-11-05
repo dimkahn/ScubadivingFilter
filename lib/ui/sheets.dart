@@ -26,7 +26,10 @@ class _ExportSheet extends StatelessWidget {
     final s = state;
     final parts = <String>[
       s.preset?.label ?? 'Réglages personnalisés',
-      s.stabilize ? 'stabilisation ${s.values['sforce']!.round()} %' : 'sans stabilisation',
+      if (!(s.current?.isImage ?? false))
+        s.stabilize ? 'stabilisation ${s.values['sforce']!.round()} %' : 'sans stabilisation',
+      if (s.current?.isTrimmed ?? false)
+        'extrait ${fmtTime(s.current!.trimIn)} → ${fmtTime(s.current!.trimOut ?? s.current!.duration)}',
       if (s.cropOn) 'format ${s.aspect == 'free' ? 'libre' : s.aspect}',
       if (s.rot != 0) 'rotation ${s.rot}°',
       if (s.flipH) 'miroir',
@@ -68,7 +71,7 @@ class _ExportSheet extends StatelessWidget {
             FilledButton.icon(
               onPressed: () => go(s.exportAll),
               icon: const Icon(Icons.playlist_play),
-              label: Text('Exporter la liste ($waiting ${waiting > 1 ? 'vidéos' : 'vidéo'})'),
+              label: Text('Exporter la liste ($waiting ${waiting > 1 ? 'fichiers' : 'fichier'})'),
             ),
           if (cur != null) ...[
             const SizedBox(height: 8),
@@ -80,7 +83,13 @@ class _ExportSheet extends StatelessWidget {
                 : FilledButton.icon(
                     onPressed: () => go(s.exportCurrent),
                     icon: const Icon(Icons.movie_creation_outlined),
-                    label: Text(cur.status == ItemStatus.done ? 'Exporter à nouveau' : 'Exporter cette vidéo'),
+                    label: Text(cur.status == ItemStatus.done
+                        ? 'Exporter à nouveau'
+                        : cur.isImage
+                            ? 'Exporter cette photo'
+                            : cur.isTrimmed
+                                ? 'Exporter cet extrait'
+                                : 'Exporter cette vidéo'),
                   ),
           ],
         ]),

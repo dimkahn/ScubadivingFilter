@@ -35,18 +35,26 @@ class MainActivity : FlutterActivity() {
             }
     }
 
-    /** Copie la vidéo dans Films/Rouge Retrouvé, hors du thread principal (fichiers volumineux). */
+    /** Copie le fichier dans Films ou Images/Scuba See Red, hors du thread principal (fichiers volumineux). */
     private fun saveToGallery(path: String, name: String, result: MethodChannel.Result) {
         val main = Handler(Looper.getMainLooper())
         thread {
             val resolver = contentResolver
+            val isPhoto = name.endsWith(".jpg")
             val values = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, name)
-                put(MediaStore.Video.Media.MIME_TYPE, if (name.endsWith(".webm")) "video/webm" else "video/mp4")
-                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/Rouge Retrouvé")
-                put(MediaStore.Video.Media.IS_PENDING, 1)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(
+                    MediaStore.MediaColumns.MIME_TYPE,
+                    if (isPhoto) "image/jpeg" else if (name.endsWith(".webm")) "video/webm" else "video/mp4",
+                )
+                put(MediaStore.MediaColumns.RELATIVE_PATH, if (isPhoto) "Pictures/Scuba See Red" else "Movies/Scuba See Red")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val collection = if (isPhoto) {
+                MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            } else {
+                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            }
             var uri: android.net.Uri? = null
             try {
                 uri = resolver.insert(collection, values) ?: error("Galerie indisponible")
@@ -54,7 +62,7 @@ class MainActivity : FlutterActivity() {
                     File(path).inputStream().use { it.copyTo(out, 1 shl 20) }
                 }
                 values.clear()
-                values.put(MediaStore.Video.Media.IS_PENDING, 0)
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
                 main.post { result.success(null) }
             } catch (e: Exception) {

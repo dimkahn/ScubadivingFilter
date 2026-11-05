@@ -52,6 +52,15 @@ void main() {
     expect(String.fromCharCodes(body), 'asset:engine.html');
   });
 
+  test('le module et le WASM du suivi sont servis avec le bon type', () async {
+    final (_, _, mjs) = await get('${server.baseUrl}/engine/vendor/ort-wasm-simd-threaded.mjs');
+    expect(mjs.contentType?.mimeType, 'text/javascript');
+    final (_, _, wasm) = await get('${server.baseUrl}/engine/vendor/ort-wasm-simd-threaded.wasm');
+    expect(wasm.contentType?.mimeType, 'application/wasm');
+    expect(wasm.value('cross-origin-opener-policy'), 'same-origin');
+    expect(wasm.value('cross-origin-embedder-policy'), 'require-corp');
+  });
+
   test('les ressources refusent la remontée de dossiers', () async {
     final q = await http.getUrl(Uri.parse('${server.baseUrl}/engine/x'));
     await (await q.close()).drain<void>();

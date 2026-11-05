@@ -322,7 +322,7 @@ class _FramePanel extends StatelessWidget {
         Text('Rotation ${s.rot}°', style: T.mono(12.5)),
       ],
       const SizedBox(height: 16),
-      _TrackingSection(state: s),
+      if (!(s.current?.isImage ?? false)) _TrackingSection(state: s),
     ]);
   }
 
@@ -585,6 +585,53 @@ class _HistPainter extends CustomPainter {
 }
 
 // ---------- Vidéos ----------
+/// Partie de la vidéo affichée à exporter, à régler au doigt ou depuis la position de lecture.
+class _TrimSection extends StatelessWidget {
+  const _TrimSection({required this.state, required this.item});
+  final AppState state;
+  final VideoItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = state, it = item;
+    final d = it.duration, end = it.trimOut ?? d;
+    final enabled = !s.exporting;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        const Expanded(child: SectionLabel('Partie à exporter')),
+        Text('${fmtTime(it.trimIn)} → ${fmtTime(end)} · ${fmtTime(end - it.trimIn)}', style: T.mono(12)),
+      ]),
+      RangeSlider(
+        values: RangeValues(it.trimIn, end),
+        max: d,
+        labels: RangeLabels(fmtTime(it.trimIn), fmtTime(end)),
+        onChanged: enabled
+            ? (v) {
+                // On montre l'image à l'endroit de la poignée déplacée.
+                s.seek(v.start != it.trimIn ? v.start : v.end);
+                s.setTrim(v.start, v.end);
+              }
+            : null,
+      ),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        OutlinedButton.icon(
+          onPressed: enabled ? s.markIn : null,
+          icon: const Icon(Icons.first_page, size: 18),
+          label: const Text('Début ici'),
+        ),
+        OutlinedButton.icon(
+          onPressed: enabled ? s.markOut : null,
+          icon: const Icon(Icons.last_page, size: 18),
+          label: const Text('Fin ici'),
+        ),
+        if (it.isTrimmed)
+          TextButton(onPressed: enabled ? s.clearTrim : null, child: const Text('Toute la vidéo')),
+      ]),
+      const SizedBox(height: 4),
+    ]);
+  }
+}
+
 class VideosPanel extends StatelessWidget {
   const VideosPanel({super.key, required this.state});
   final AppState state;
@@ -604,7 +651,7 @@ class VideosPanel extends StatelessWidget {
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Text(
-                'Ajoutez une ou plusieurs vidéos : les réglages s\'appliquent à toute la liste. En attendant, essayez les outils sur la scène de démonstration.',
+                'Ajoutez des vidéos ou des photos : les réglages s\'appliquent à toute la liste. En attendant, essayez les outils sur la scène de démonstration.',
                 textAlign: TextAlign.center,
                 style: T.body(14, color: C.muted),
               ),
@@ -615,7 +662,7 @@ class VideosPanel extends StatelessWidget {
               icon: s.importing
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.add),
-              label: Text(s.importing ? 'Import en cours…' : 'Ajouter des vidéos'),
+              label: Text(s.importing ? 'Import en cours…' : 'Ajouter vidéos ou photos'),
             ),
           ]),
         ),
@@ -629,7 +676,7 @@ class VideosPanel extends StatelessWidget {
           Row(children: [
             Expanded(
               child: Text(
-                '${s.queue.length} ${s.queue.length > 1 ? 'vidéos' : 'vidéo'}'
+                '${s.queue.length} ${s.queue.length > 1 ? 'fichiers' : 'fichier'}'
                 '${s.totalDuration > 0 ? ' · ${fmtTime(s.totalDuration)}' : ''}'
                 '${s.doneCount > 0 ? ' · ${s.doneCount} terminée${s.doneCount > 1 ? 's' : ''}' : ''}',
                 style: T.mono(12.5),
@@ -655,6 +702,10 @@ class VideosPanel extends StatelessWidget {
               if (s.doneCount > 0 && !s.batchRunning)
                 OutlinedButton(onPressed: s.clearDone, child: const Text('Retirer les terminées')),
             ]),
+          ],
+          if (s.current case final cur? when !cur.isImage && cur.duration > AppState.minClip) ...[
+            const SizedBox(height: 10),
+            _TrimSection(state: s, item: cur),
           ],
           const SizedBox(height: 8),
           _Columns(children: [for (final it in s.queue) QueueTile(state: s, item: it)]),
@@ -696,10 +747,17 @@ class QueueTile extends StatelessWidget {
       };
 
   String get _meta {
-    final d = item.duration > 0 ? fmtTime(item.duration) : '…';
+    final d = item.isImage
+        ? 'Photo'
+        : item.duration <= 0
+            ? '…'
+            : item.isTrimmed
+                ? 'Extrait ${fmtTime(item.clipDuration)}'
+                : fmtTime(item.duration);
     switch (item.status) {
       case ItemStatus.run:
         final sp = item.speed > 0 ? ' · ×${item.speed.toStringAsFixed(1).replaceAll('.', ',')}' : '';
+        if (item.mode == 'analyse') return 'Analyse du sujet · ${(item.progress * 100).round()} %';
         return '${(item.progress * 100).round()} %$sp${item.mode == 'rt' ? ' · temps réel' : ''}';
       case ItemStatus.done:
         return '$d · ${fmtSize(item.outputBytes)} en ${fmtLong(item.exportTime)}'
@@ -766,7 +824,11 @@ class QueueTile extends StatelessWidget {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(builder: (_) => ResultPlayer(file: it.output!, title: it.name)),
+                        MaterialPageRoute<void>(
+                          builder: (_) => it.isImage
+                              ? PhotoViewer(file: it.output!, title: it.name)
+                              : ResultPlayer(file: it.output!, title: it.name),
+                        ),
                       ),
                       icon: const Icon(Icons.play_circle_outline, size: 18),
                       label: const Text('Voir'),

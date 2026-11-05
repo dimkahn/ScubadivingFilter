@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Scuba See Red">
+  <title>Scuba See Red</title>
+  <defs>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1590AE"/>
+      <stop offset="0.55" stop-color="#0B5E82"/>
+      <stop offset="1" stop-color="#07344F"/>
+    </linearGradient>
+    <radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="512" cy="560" r="520">
+      <stop offset="0" stop-color="#4A1D14"/>
+      <stop offset="1" stop-color="#121416"/>
+    </radialGradient>
+    <linearGradient id="coral" gradientUnits="userSpaceOnUse" x1="0" y1="180" x2="0" y2="1024">
+      <stop offset="0" stop-color="#FF8A5C"/>
+      <stop offset="1" stop-color="#FF5D4A"/>
+    </linearGradient>
+    <clipPath id="tile"><rect width="1024" height="1024" rx="228"/></clipPath>
+    <clipPath id="left"><rect width="512" height="1024"/></clipPath>
+    <clipPath id="right"><rect x="512" width="512" height="1024"/></clipPath>
+
+    <g id="branches" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <!-- tronc -->
+      <path stroke-width="76" d="M512 960 C508 820 520 720 512 620 C506 540 516 470 512 380"/>
+      <!-- bras gauches -->
+      <path stroke-width="54" d="M512 760 C430 740 360 690 322 600"/>
+      <path stroke-width="38" d="M322 600 C296 560 268 530 214 500"/>
+      <path stroke-width="38" d="M372 664 C310 680 240 680 164 650"/>
+      <path stroke-width="38" d="M322 600 C330 550 326 500 306 454"/>
+      <path stroke-width="54" d="M512 580 C470 540 440 490 430 420"/>
+      <path stroke-width="38" d="M430 420 C424 350 420 290 392 214"/>
+      <path stroke-width="38" d="M428 440 C380 400 330 370 276 350"/>
+      <!-- bras droits -->
+      <path stroke-width="54" d="M512 700 C590 690 660 640 700 560"/>
+      <path stroke-width="38" d="M700 560 C730 510 760 470 820 430"/>
+      <path stroke-width="38" d="M660 622 C720 640 790 640 866 610"/>
+      <path stroke-width="38" d="M700 560 C700 510 702 470 726 416"/>
+      <path stroke-width="54" d="M512 540 C566 500 592 430 596 350"/>
+      <path stroke-width="38" d="M596 350 C598 290 604 230 634 170"/>
+      <path stroke-width="38" d="M598 396 C640 350 690 320 736 300"/>
+      <!-- cime -->
+      <path stroke-width="44" d="M512 400 C512 340 504 280 512 200"/>
+    </g>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <!-- moitié « originale » : eau bleue, le rouge a disparu -->
+    <g clip-path="url(#left)">
+      <rect width="1024" height="1024" fill="url(#water)"/>
+      <use xlink:href="#branches" href="#branches" stroke="#06283E"/>
+      <path d="M90 1024 C240 930 390 880 512 880 C634 880 784 930 934 1024 Z" fill="#06283E"/>
+      <circle cx="136" cy="330" r="28" fill="#BFEAF5" fill-opacity=".85"/>
+      <circle cx="212" cy="196" r="18" fill="#BFEAF5" fill-opacity=".85"/>
+      <circle cx="118" cy="176" r="11" fill="#BFEAF5" fill-opacity=".85"/>
+    </g>
+    <!-- moitié « corrigée » : le rouge revient -->
+    <g clip-path="url(#right)">
+      <rect width="1024" height="1024" fill="url(#glow)"/>
+      <use xlink:href="#branches" href="#branches" stroke="url(#coral)"/>
+      <path d="M90 1024 C240 930 390 880 512 880 C634 880 784 930 934 1024 Z" fill="url(#coral)"/>
+    </g>
+    <!-- le curseur de comparaison -->
+    <rect x="504" width="16" height="1024" fill="#FFFFFF"/>
+  </g>
+</svg>
