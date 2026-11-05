@@ -1,0 +1,42 @@
+name: rouge_retrouve
+description: "Correcteur de couleurs et stabilisateur pour vidéos de plongée."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.0
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  file_picker: ^13.3.2
+  path_provider: ^2.1.6
+  share_plus: ^13.3.1
+  video_player: ^2.14.1
+  webview_flutter: ^4.14.1
+  webview_flutter_android: ^4.14.1
+  webview_flutter_wkwebview: ^3.27.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/engine/
+    - assets/engine/vendor/
+  fonts:
+    - family: Bricolage
+      fonts:
+        - asset: assets/fonts/BricolageGrotesque.ttf
+    - family: Plex
+      fonts:
+        - asset: assets/fonts/IBMPlexSans.ttf
+    - family: PlexMono
+      fonts:
+        - asset: assets/fonts/IBMPlexMono-Regular.ttf
+        - asset: assets/fonts/IBMPlexMono-Medium.ttf
+          weight: 500
