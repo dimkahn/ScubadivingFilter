@@ -1,4 +1,4 @@
-package com.dkahn.rouge_retrouve
+package com.dkahn.scubaseered
 
 import android.content.ContentValues
 import android.os.Handler

@@ -12,7 +12,7 @@ val keyProperties: Properties? = rootProject.file("key.properties").takeIf { it.
 }
 
 android {
-    namespace = "com.dkahn.rouge_retrouve"
+    namespace = "com.dkahn.scubaseered"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -23,7 +23,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.dkahn.rouge_retrouve"
+        applicationId = "com.dkahn.scubaseered"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // Android 10 : MediaStore sans permission de stockage.

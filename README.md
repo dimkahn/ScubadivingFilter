@@ -45,4 +45,4 @@ flutter build appbundle --release   # build/app/outputs/bundle/release/app-relea
 
 Sauvegarder la clé et son mot de passe hors de l'ordinateur. Sans `android/key.properties`, le build est signé
 avec la clé de debug, utile pour essayer une version release, mais refusé par le Play Store.
-L'identifiant `com.dkahn.rouge_retrouve` est à confirmer : il devient définitif à la première publication.
+L'identifiant `com.dkahn.scubaseered` devient définitif à la première publication.
