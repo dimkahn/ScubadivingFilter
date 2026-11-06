@@ -54,7 +54,8 @@ BON À SAVOIR
 
 - Type : application
 - Catégorie : Vidéo et montage (à confirmer selon la liste de la console)
-- Contact : adresse à renseigner, elle sera publique
+- Éditeur : ICUDROID
+- Contact public : icudroid@gmail.com
 
 ## Contenu de l'application
 
