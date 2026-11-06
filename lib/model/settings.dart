@@ -20,6 +20,7 @@ const colorSliders = [
   SliderSpec('sat', 'Saturation', 0, 200, 115, _x100),
   SliderSpec('bright', 'Luminosité', 60, 160, 105, _x100),
   SliderSpec('smooth', 'Lissage temporel', 0, 98, 90, _pct),
+  SliderSpec('lamp', 'Protection des zones éclairées', 0, 100, 100, _pct),
 ];
 const forceSlider = SliderSpec('sforce', 'Force', 50, 99, 92, _pct);
 const marginSlider = SliderSpec('scrop', 'Recadrage maximum', 4, 24, 10, _pct);
@@ -42,9 +43,9 @@ enum WaterPreset {
 
   Map<String, double> get settings => switch (this) {
         auto => defaultValues(),
-        blue => {'strength': 100, 'red': 120, 'clip': 8, 'sat': 120, 'bright': 105, 'smooth': 90},
-        green => {'strength': 100, 'red': 90, 'clip': 10, 'sat': 105, 'bright': 108, 'smooth': 90},
-        deep => {'strength': 90, 'red': 65, 'clip': 12, 'sat': 100, 'bright': 115, 'smooth': 94},
+        blue => {'strength': 100, 'red': 120, 'clip': 8, 'sat': 120, 'bright': 105, 'smooth': 90, 'lamp': 100},
+        green => {'strength': 100, 'red': 90, 'clip': 10, 'sat': 105, 'bright': 108, 'smooth': 90, 'lamp': 100},
+        deep => {'strength': 90, 'red': 65, 'clip': 12, 'sat': 100, 'bright': 115, 'smooth': 94, 'lamp': 100},
       };
 }
 

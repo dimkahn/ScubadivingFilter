@@ -31,11 +31,23 @@ ff('-f', 'lavfi', '-i', 'color=c=0x204060:s=1280x720:r=30:d=4', '-f', 'lavfi', '
 const photo = join(W, 'plongee.jpg');
 ff('-f', 'lavfi', '-i', 'testsrc2=s=1600x1200:r=1:d=1,colorchannelmixer=rr=.35:gg=.9:bb=1', '-frames:v', '1', '-update', '1', photo);
 
+// Eau bleue, puis un sujet éclairé par une lampe : photo, et vidéo où la lampe s'allume à 2 s.
+const WATER = 'color=c=0x165E78:s=1280x720:r=30:d=4,noise=alls=14:allf=p';
+const LIT = 'drawbox=x=480:y=240:w=320:h=240:c=0x8F8273:t=fill';
+const lampPhoto = join(W, 'lampe.png'), waterPhoto = join(W, 'eau.png'), lampVideo = join(W, 'lampe.mp4');
+ff('-f', 'lavfi', '-i', `${WATER},${LIT}`, '-frames:v', '1', '-update', '1', lampPhoto);
+ff('-f', 'lavfi', '-i', WATER, '-frames:v', '1', '-update', '1', waterPhoto);
+ff('-f', 'lavfi', '-i', `${WATER},drawbox=x=480:y=240:w=320:h=240:c=0x8F8273:t=fill:enable='gte(t,2)'`, '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', lampVideo);
+// Couleur moyenne d'une zone, en R V B 0-255.
+const rgbAt = (file, x, y, w, h, ss = 0) => [...execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-ss', String(ss), '-i', file, '-frames:v', '1',
+  '-vf', `crop=${w}:${h}:${x}:${y},scale=1:1:flags=area`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])];
+const near = (a, b, tol) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
+
 // ---------- Serveur et navigateur ----------
 const outDir = join(W, 'out');
-const srv = spawn('dart', ['tool/engine_e2e/serve.dart', outDir, land, portrait, webm, moving, photo], {stdio: ['ignore', 'pipe', 'inherit']});
+const srv = spawn('dart', ['tool/engine_e2e/serve.dart', outDir, land, portrait, webm, moving, photo, lampPhoto, waterPhoto, lampVideo], {stdio: ['ignore', 'pipe', 'inherit']});
 const info = await new Promise(res => srv.stdout.once('data', d => res(JSON.parse(String(d)))));
-const [L, P, Wb, M, ImgSrc] = info.sources;
+const [L, P, Wb, M, ImgSrc, LampSrc, WaterSrc, LampV] = info.sources;
 const Img = {...ImgSrc, kind: 'image'};
 const port = 9300 + Math.floor(Math.random() * 500);
 const chrome = spawn('google-chrome', ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${join(W, 'chrome')}`,
@@ -167,6 +179,28 @@ try {
   done = await exportOf(L);
   const vIn = meanStat(land, 'signalstats', 'VAVG'), vOut = meanStat(part(L.id), 'signalstats', 'VAVG');
   check('correction : le rouge (chroma V) remonte', vOut > vIn + 2, `V source=${vIn.toFixed(1)} sortie=${vOut.toFixed(1)}`);
+
+  // Lampe : le sujet éclairé garde ses couleurs, et l'eau reste celle du calcul habituel.
+  const exportColours = async (src, lamp) => {
+    await reload();
+    await cmd({c: 'settings', v: {strength: 100, stab: false, compare: false, lamp}});
+    const e = await exportOf({...src, kind: 'image'});
+    if (e.type !== 'exportDone') throw new Error(JSON.stringify(e));
+    return {lit: rgbAt(part(src.id), 560, 300, 160, 120), water: rgbAt(part(src.id), 40, 40, 200, 200)};
+  };
+  const off = await exportColours(LampSrc, 0), on = await exportColours(LampSrc, 100);
+  const waterOff = await exportColours(WaterSrc, 0), waterOn = await exportColours(WaterSrc, 100);
+  const litIn = rgbAt(lampPhoto, 560, 300, 160, 120);
+  console.log(`     sujet source ${litIn} sans protection ${off.lit} avec ${on.lit} ; eau sans lampe ${waterOff.water} avec lampe ${on.water} (non protégée ${off.water})`);
+  check('lampe : le sujet éclairé garde son bleu', on.lit[2] >= litIn[2] - 25 && off.lit[2] < litIn[2] - 25, `bleu source=${litIn[2]} sans=${off.lit[2]} avec=${on.lit[2]}`);
+  check('lampe : le sujet éclairé ne vire pas au rouge', on.lit[0] - on.lit[2] < litIn[0] - litIn[2] + 25, `R-B source=${litIn[0] - litIn[2]} avec=${on.lit[0] - on.lit[2]}`);
+  check('lampe : l\'eau reste corrigée comme sans protection', near(on.water, off.water, 2), `${on.water} / ${off.water}`);
+  check('lampe : aucun effet sur une image sans lampe', near(waterOn.water, waterOff.water, 2), `${waterOn.water} / ${waterOff.water}`);
+  await reload();
+  await cmd({c: 'settings', v: {strength: 100, stab: false, compare: false, smooth: 90}});
+  done = await exportOf(LampV);
+  const wBefore = rgbAt(part(LampV.id), 40, 40, 200, 200, 1.5), wAfter = rgbAt(part(LampV.id), 40, 40, 200, 200, 3.5);
+  check('lampe : l\'eau ne rougit pas quand la lampe s\'allume', done.type === 'exportDone' && wAfter[0] <= wBefore[0] + 8, `${wBefore} puis ${wAfter}`);
 
   // Arrêt en cours d'export : le moteur revient à l'état normal
   await reload();

@@ -28,9 +28,12 @@
   precision mediump float;
   #endif
   `;
+  // Lampe : un pixel bien plus rouge que l'eau alentour reçoit une vraie lumière blanche. La correction pensée pour
+  // l'eau le saturerait, il garde donc ses couleurs. am = rapport rouge/(vert ou bleu) de l'eau. Même calcul : lampWeight.
+  const LAMP_FROM = .2, LAMP_SPAN = .35, LAMP_DARK = .08, LAMP_DARK_SPAN = .12;
   const FS = PREC + `
   varying vec2 v; uniform sampler2D t;
-  uniform vec3 lo, sc, mn; uniform float al, be, st, sa, ga, sp; uniform vec4 win; uniform vec3 ax, ay;
+  uniform vec3 lo, sc, mn; uniform float al, be, st, sa, ga, sp, am, lp; uniform vec4 win; uniform vec3 ax, ay;
   void main(){
     vec2 p = win.xy + vec2(v.x, 1.0 - v.y)*win.zw;
     vec3 c = texture2D(t, vec2(dot(ax.xy, p) + ax.z, dot(ay.xy, p) + ay.z)).rgb;
@@ -38,6 +41,10 @@
     float r = c.r + al*(mn.g-mn.r)*(1.0-c.r)*c.g;
     float b = c.b + be*(mn.g-mn.b)*(1.0-c.b)*c.g;
     vec3 x = clamp((vec3(r,c.g,b)-lo)*sc, 0.0, 1.0);
+    float e = max(c.g, c.b);
+    float w = lp*smoothstep(am + ${LAMP_FROM}, am + ${LAMP_FROM + LAMP_SPAN}, c.r/max(e, 0.02))
+      *smoothstep(${LAMP_DARK}, ${LAMP_DARK + LAMP_DARK_SPAN}, max(c.r, e));
+    x = mix(x, c, w);
     x = pow(x, vec3(ga));
     float l = dot(x, vec3(0.2126,0.7152,0.0722));
     x = clamp(mix(vec3(l), x, sa), 0.0, 1.0);
@@ -55,7 +62,7 @@
   const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
   const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  const U = {}; ['lo','sc','mn','al','be','st','sa','ga','sp','win','ax','ay'].forEach(n => U[n] = gl.getUniformLocation(prog, n));
+  const U = {}; ['lo','sc','mn','al','be','st','sa','ga','sp','am','lp','win','ax','ay'].forEach(n => U[n] = gl.getUniformLocation(prog, n));
   const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
   [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T].forEach(k => gl.texParameteri(gl.TEXTURE_2D, k, gl.CLAMP_TO_EDGE));
@@ -123,7 +130,7 @@
   const pix = new Uint8Array(MW*MH*4); let havePix = false;
 
   // ---------- Réglages (la valeur de référence est côté Flutter) ----------
-  const S = {strength:100, red:100, clip:8, sat:115, bright:105, smooth:90, sforce:92, scrop:10, follow:88,
+  const S = {strength:100, red:100, clip:8, sat:115, bright:105, smooth:90, lamp:100, sforce:92, scrop:10, follow:88,
     nano:true, tam:true, stab:true, compare:true, split:.5, fast:true, listen:false, wantHist:false};
 
   // ---------- Source : démo ou vidéo ----------
@@ -181,14 +188,32 @@
   const duration = () => still ? 0 : useDemo ? demoLen : (video.duration || 0);
 
   // ---------- Analyse des couleurs ----------
-  const P = {lo:[0,0,0], sc:[1,1,1], mn:[.5,.5,.5], al:0, be:0}; let haveP = false;
+  const NO_AMBIENT = 9;
+  const P = {lo:[0,0,0], sc:[1,1,1], mn:[.5,.5,.5], al:0, be:0, am:NO_AMBIENT, lp:1}; let haveP = false;
+  const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+  const smooth01 = t => { t = clamp01(t); return t*t*(3-2*t); };
+  // Part de lumière de lampe dans un pixel (0 à 1) : même calcul que le shader.
+  const lampWeight = (r, g, b, am) => { const e = Math.max(g, b);
+    return smooth01((r/Math.max(e, .02) - am - LAMP_FROM)/LAMP_SPAN)*smooth01((Math.max(r, e) - LAMP_DARK)/LAMP_DARK_SPAN); };
+  // Rapport rouge/(vert ou bleu) de l'eau : 30e centile, pour rester sur l'eau même si la lampe éclaire une grande partie
+  // de l'image. Sans assez de pixels visibles, rien n'est considéré comme éclairé.
+  function ambientRatio(d, n){
+    const h = new Uint32Array(128); let seen = 0;
+    for (let i=0;i<d.length;i+=4){ const e = Math.max(d[i+1], d[i+2]);
+      if (Math.max(d[i], e) < LAMP_DARK*255) continue;
+      h[Math.min(127, d[i]/Math.max(e, 5)*64|0)]++; seen++; }
+    if (seen < n*.05) return NO_AMBIENT;
+    let acc = 0; for (let i=0;i<128;i++){ acc += h[i]; if (acc >= seen*.3) return (i+.5)/64; }
+    return NO_AMBIENT;
+  }
   function analyze(){
     if (!havePix) return null;
-    const d = pix, n = d.length/4;
+    const d = pix, n = d.length/4, lp = S.lamp/100, am = lp > 0 ? ambientRatio(d, n) : NO_AMBIENT;
     let mR=0, mG=0, mB=0;
     for (let i=0;i<d.length;i+=4){ mR+=d[i]; mG+=d[i+1]; mB+=d[i+2]; }
     mR/=n*255; mG/=n*255; mB/=n*255;
     const al = S.red/100, be = mG > mB ? al*0.5 : 0;
+    // Les pixels éclairés restent dans les statistiques : ce sont eux qui limitent le gain du rouge sur le reste de l'image.
     const hR = new Uint32Array(256), hG = new Uint32Array(256), hB = new Uint32Array(256);
     for (let i=0;i<d.length;i+=4){
       const r=d[i]/255, g=d[i+1]/255, b=d[i+2]/255;
@@ -201,12 +226,13 @@
       acc=0; for (let i=0;i<256;i++){ acc+=h[i]; if (acc>=hi){ b=i; break; } }
       if (b-a < 12) b = Math.min(255, a+12); return [a/255, b/255]; };
     const ch = [pct(hR), pct(hG), pct(hB)];
-    return {lo: ch.map(c=>c[0]), sc: ch.map(c=>Math.min(5, 1/(c[1]-c[0]))), mn:[mR,mG,mB], al, be};
+    return {lo: ch.map(c=>c[0]), sc: ch.map(c=>Math.min(5, 1/(c[1]-c[0]))), mn:[mR,mG,mB], al, be, am, lp};
   }
   function blend(tgt, k){
     if (!haveP){ k = 1; haveP = true; }
     for (let i=0;i<3;i++){ P.lo[i]+=(tgt.lo[i]-P.lo[i])*k; P.sc[i]+=(tgt.sc[i]-P.sc[i])*k; P.mn[i]+=(tgt.mn[i]-P.mn[i])*k; }
-    P.al = tgt.al; P.be = tgt.be;
+    P.al = tgt.al; P.be = tgt.be; P.lp = tgt.lp;
+    P.am += (tgt.am - P.am)*k;
   }
 
   // ---------- Stabilisation ----------
@@ -733,7 +759,7 @@
     const W = viewWindow();
     gl.uniform4f(U.win, W.x, W.y, W.w, W.h); setAffine(U.ax, U.ay);
     gl.uniform3fv(U.lo, P.lo); gl.uniform3fv(U.sc, P.sc); gl.uniform3fv(U.mn, P.mn);
-    gl.uniform1f(U.al, P.al); gl.uniform1f(U.be, P.be);
+    gl.uniform1f(U.al, P.al); gl.uniform1f(U.be, P.be); gl.uniform1f(U.am, P.am); gl.uniform1f(U.lp, P.lp);
     gl.uniform1f(U.st, S.strength/100); gl.uniform1f(U.sa, S.sat/100); gl.uniform1f(U.ga, 100/S.bright);
     gl.uniform1f(U.sp, (exporting || UIM !== 'normal' || !S.compare) ? 0 : S.split);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -742,7 +768,6 @@
 
   // ---------- Histogramme (uniquement si le panneau est ouvert) ----------
   const HB = 64, hO = [0,1,2].map(() => new Float32Array(HB)), hC = [0,1,2].map(() => new Float32Array(HB));
-  const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
   function computeHist(){
     for (let c=0; c<3; c++){ hO[c].fill(0); hC[c].fill(0); }
     const d = pix, n = d.length/4, st = S.strength/100, sa = S.sat/100, ga = 100/S.bright;
@@ -751,7 +776,8 @@
       const r = d[i]/255, g = d[i+1]/255, b = d[i+2]/255;
       hO[0][Math.min(HB-1, r*HB|0)]++; hO[1][Math.min(HB-1, g*HB|0)]++; hO[2][Math.min(HB-1, b*HB|0)]++;
       const rr = r + P.al*(P.mn[1]-P.mn[0])*(1-r)*g, bb = b + P.be*(P.mn[1]-P.mn[2])*(1-b)*g;
-      let x0 = Math.pow(clamp01((rr-P.lo[0])*P.sc[0]), ga), x1 = Math.pow(clamp01((g-P.lo[1])*P.sc[1]), ga), x2 = Math.pow(clamp01((bb-P.lo[2])*P.sc[2]), ga);
+      const w = P.lp*lampWeight(r, g, b, P.am);
+      let x0 = Math.pow(clamp01((rr-P.lo[0])*P.sc[0])*(1-w) + r*w, ga), x1 = Math.pow(clamp01((g-P.lo[1])*P.sc[1])*(1-w) + g*w, ga), x2 = Math.pow(clamp01((bb-P.lo[2])*P.sc[2])*(1-w) + b*w, ga);
       const l = 0.2126*x0 + 0.7152*x1 + 0.0722*x2;
       x0 = clamp01(l + (x0-l)*sa); x1 = clamp01(l + (x1-l)*sa); x2 = clamp01(l + (x2-l)*sa);
       x0 = r + (x0-r)*st; x1 = g + (x1-g)*st; x2 = b + (x2-b)*st;
