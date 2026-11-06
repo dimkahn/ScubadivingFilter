@@ -72,8 +72,8 @@
 		<true/>
 	</dict>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Pour choisir les vidéos de plongée à corriger.</string>
+	<string>Pour choisir les vidéos et les photos de plongée à corriger.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Pour enregistrer les vidéos corrigées dans Photos.</string>
+	<string>Pour enregistrer les vidéos et les photos corrigées dans Photos.</string>
 </dict>
 </plist>

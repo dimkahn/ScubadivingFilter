@@ -35,6 +35,9 @@ flutter test --update-goldens --dart-define=SCREENSHOTS=true test/screens_test.d
 
 ## Publication
 
+La fiche, les réponses aux formulaires, les visuels et la politique de confidentialité sont dans `store/`.
+`tool/release/make_icons.sh` régénère les icônes depuis `branding/`.
+
 ```bash
 tool/release/create_upload_key.sh   # une seule fois : crée la clé et android/key.properties, hors de git
 flutter build appbundle --release   # build/app/outputs/bundle/release/app-release.aab

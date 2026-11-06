@@ -187,8 +187,8 @@ class _Brand extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text.rich(
         TextSpan(children: [
-          TextSpan(text: 'Rouge ', style: T.display(21)),
-          TextSpan(text: 'retrouvé', style: T.display(21, color: C.accent)),
+          TextSpan(text: 'Scuba See ', style: T.display(21)),
+          TextSpan(text: 'Red', style: T.display(21, color: C.accent)),
         ]),
         maxLines: 1,
       );
