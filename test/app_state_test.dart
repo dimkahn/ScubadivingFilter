@@ -248,6 +248,68 @@ void main() {
       expect(s.snapping, isFalse);
       expect(host.discarded, contains(id));
     });
+
+    test('images de la galerie (gif, avif, bmp) reconnues comme photos ; nom de base', () {
+      // Seul le premier ajout est affiché : on vérifie le dernier élément de la liste.
+      for (final n in ['anim.gif', 'photo.AVIF', 'scan.bmp']) {
+        load(n);
+        expect(s.queue.last.isImage, isTrue, reason: n);
+        expect(s.queue.last.toCmd()['kind'], 'image', reason: n);
+      }
+      load('clip.mov');
+      expect(s.queue.last.isImage, isFalse);
+      expect(s.queue.last.baseName, 'clip');
+      load('.cache');
+      expect(s.queue.last.baseName, '.cache');
+    });
+
+    test("temps restant d'un extrait : calculé sur l'extrait, pas sur toute la vidéo", () async {
+      load('long.mp4');
+      final it = s.current!;
+      s.handleEvent({'type': 'probe', 'id': it.id, 'dur': 600.0});
+      s.setTrim(100, 110);
+      unawaited(s.exportCurrent());
+      await Future<void>.delayed(Duration.zero);
+      s.handleEvent({'type': 'exportProgress', 'id': it.id, 'p': .5, 'speed': 1.0, 'mode': 'fast'});
+      expect(s.remainingSeconds, closeTo(5, 1e-9));
+    });
+
+    test("l'analyse du sujet a sa propre progression et ne fait pas avancer l'export", () async {
+      load('a.mp4');
+      final it = s.current!;
+      s.handleEvent({'type': 'probe', 'id': it.id, 'dur': 40.0});
+      unawaited(s.exportCurrent());
+      await Future<void>.delayed(Duration.zero);
+      s.handleEvent({'type': 'exportProgress', 'id': it.id, 'p': .4, 'speed': 0, 'mode': 'analyse'});
+      expect(it.analysis, .4);
+      expect(it.progress, 0);
+      expect(it.shownProgress, .4);
+      expect(s.overallProgress, 0);
+      s.handleEvent({'type': 'exportProgress', 'id': it.id, 'p': .1, 'speed': 2.0, 'mode': 'fast'});
+      expect(it.progress, .1);
+      expect(it.shownProgress, .1);
+    });
+
+    test('photo dont la vidéo a été retirée pendant la capture : enregistrée, puis fichier temporaire supprimé', () async {
+      load('a.mp4');
+      final it = s.current!;
+      s.takeSnapshot();
+      final id = engine.commands('snapshot').first['id'];
+      await s.remove(it);
+      s.handleEvent({'type': 'snapshotDone', 'id': id, 'bytes': 9, 'w': 10, 'h': 10, 't': 3.0});
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(device.saved.single, 'a-photo-3_0s.jpg');
+      expect(File('${dir.path}/a-photo-3_0s.jpg').existsSync(), isFalse);
+      expect(it.photos, isEmpty);
+      expect(s.snapping, isFalse);
+    });
+
+    test('photo inconnue du suivi : sortie partielle libérée', () async {
+      s.handleEvent({'type': 'snapshotDone', 'id': 'x-photo-9', 'bytes': 9, 'w': 10, 'h': 10, 't': 1.0});
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(host.discarded, contains('x-photo-9'));
+      expect(device.saved, isEmpty);
+    });
   });
 }
 

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import '../model/media.dart';
+
 /// Serveur HTTP limité à l'appareil, utilisé par la WebView du moteur vidéo.
 ///
 /// - `http://127.0.0.1` est un « contexte sécurisé » : WebCodecs y est disponible.
@@ -144,12 +146,7 @@ class LocalServer {
     final type = switch (lower.split('.').last) {
       'webm' => 'video/webm',
       'mkv' => 'video/x-matroska',
-      'jpg' || 'jpeg' => 'image/jpeg',
-      'png' => 'image/png',
-      'webp' => 'image/webp',
-      'heic' => 'image/heic',
-      'heif' => 'image/heif',
-      _ => 'video/mp4',
+      final ext => imageMimeTypes[ext] ?? 'video/mp4',
     };
     res.headers.set(HttpHeaders.contentTypeHeader, type);
     res.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');

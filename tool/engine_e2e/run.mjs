@@ -37,6 +37,9 @@ const LIT = 'drawbox=x=480:y=240:w=320:h=240:c=0x8F8273:t=fill';
 const lampPhoto = join(W, 'lampe.png'), waterPhoto = join(W, 'eau.png'), lampVideo = join(W, 'lampe.mp4');
 ff('-f', 'lavfi', '-i', `${WATER},${LIT}`, '-frames:v', '1', '-update', '1', lampPhoto);
 ff('-f', 'lavfi', '-i', WATER, '-frames:v', '1', '-update', '1', waterPhoto);
+// Image presque noire : trop peu de pixels visibles pour mesurer l'eau, la protection doit rester coupée.
+const darkRed = join(W, 'sombre-rouge.png');
+ff('-f', 'lavfi', '-i', 'color=c=black:s=1280x720:d=1,drawbox=x=560:y=300:w=160:h=120:c=0xCC0303:t=fill', '-frames:v', '1', '-update', '1', darkRed);
 ff('-f', 'lavfi', '-i', `${WATER},drawbox=x=480:y=240:w=320:h=240:c=0x8F8273:t=fill:enable='gte(t,2)'`, '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', lampVideo);
 // Couleur moyenne d'une zone, en R V B 0-255.
 const rgbAt = (file, x, y, w, h, ss = 0) => [...execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-ss', String(ss), '-i', file, '-frames:v', '1',
@@ -49,9 +52,9 @@ ff('-f', 'lavfi', '-i', 'testsrc2=s=1280x720:r=30:d=3,noise=alls=40:allf=t', '-c
 
 // ---------- Serveur et navigateur ----------
 const outDir = join(W, 'out');
-const srv = spawn('dart', ['tool/engine_e2e/serve.dart', outDir, land, portrait, webm, moving, photo, lampPhoto, waterPhoto, lampVideo, rich], {stdio: ['ignore', 'pipe', 'inherit']});
+const srv = spawn('dart', ['tool/engine_e2e/serve.dart', outDir, land, portrait, webm, moving, photo, lampPhoto, waterPhoto, lampVideo, rich, darkRed], {stdio: ['ignore', 'pipe', 'inherit']});
 const info = await new Promise(res => srv.stdout.once('data', d => res(JSON.parse(String(d)))));
-const [L, P, Wb, M, ImgSrc, LampSrc, WaterSrc, LampV, Rich] = info.sources;
+const [L, P, Wb, M, ImgSrc, LampSrc, WaterSrc, LampV, Rich, DarkRed] = info.sources;
 const Img = {...ImgSrc, kind: 'image'};
 const port = 9300 + Math.floor(Math.random() * 500);
 const chrome = spawn('google-chrome', ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${join(W, 'chrome')}`,
@@ -200,6 +203,8 @@ try {
   check('lampe : le sujet éclairé ne vire pas au rouge', on.lit[0] - on.lit[2] < litIn[0] - litIn[2] + 25, `R-B source=${litIn[0] - litIn[2]} avec=${on.lit[0] - on.lit[2]}`);
   check('lampe : l\'eau reste corrigée comme sans protection', near(on.water, off.water, 2), `${on.water} / ${off.water}`);
   check('lampe : aucun effet sur une image sans lampe', near(waterOn.water, waterOff.water, 2), `${waterOn.water} / ${waterOff.water}`);
+  const darkOff = await exportColours(DarkRed, 0), darkOn = await exportColours(DarkRed, 100);
+  check('lampe : image sombre sans eau mesurable, la protection reste coupée', near(darkOn.lit, darkOff.lit, 2), `${darkOn.lit} / ${darkOff.lit}`);
   await reload();
   await cmd({c: 'settings', v: {strength: 100, stab: false, compare: false, smooth: 90}});
   done = await exportOf(LampV);
@@ -263,6 +268,12 @@ try {
   const sv = probe(part('snap1'))[0];
   check('photo : JPEG en pleine résolution', sv.codec_name === 'mjpeg' && sv.width === 1280 && sv.height === 720 && Math.abs(snap.t - 2) < .1, `${sv.codec_name} ${sv.width}x${sv.height} t=${snap.t}`);
   check('photo : couleurs corrigées', meanStat(part('snap1'), 'signalstats', 'VAVG') > meanStat(land, 'signalstats', 'VAVG') + 10, '');
+  // Un export demandé pendant l'écriture d'une photo attend la fin de la capture au lieu d'être perdu.
+  await clear();
+  await js(`Engine.cmd({c:'snapshot', id:'snap2'}); Engine.cmd(${JSON.stringify({c: 'export', item: {...L, out: 1}})})`);
+  const snap2 = await until('snapshotDone', () => true, 20000).catch(() => null);
+  const afterSnap = await until('exportDone', e => e.id === L.id, 120000).catch(() => null);
+  check('photo puis export immédiat : les deux aboutissent', !!snap2 && !!afterSnap, `photo=${!!snap2} export=${afterSnap?.type ?? 'aucune réponse'}`);
 
   // Image en entrée : pleine résolution, corrigée, sans recadrage de stabilisation.
   await reload();
@@ -339,7 +350,7 @@ try {
   // Stabilisation : l'écart moyen entre images successives doit baisser sur une vidéo secouée
   const shaky = join(W, 'shaky.mp4');
   ff('-f', 'lavfi', '-i', 'mandelbrot=s=1400x800:r=30:end_scale=0.3,trim=duration=3', '-vf', "crop=1280:720:60+50*sin(n*1.1):40+35*cos(n*0.9)", '-c:v', 'libx264', '-pix_fmt', 'yuv420p', shaky);
-  const srv2 = spawn('dart', ['tool/engine_e2e/serve.dart', join(W, 'out2'), shaky], {stdio: ['ignore', 'pipe', 'inherit']});
+  const srv2 = spawn('dart', ['tool/engine_e2e/serve.dart', join(W, 'out2'), shaky, photo], {stdio: ['ignore', 'pipe', 'inherit']});
   const info2 = await new Promise(res => srv2.stdout.once('data', d => res(JSON.parse(String(d)))));
   try {
     await cdp('Page.navigate', {url: info2.engine}); await until('ready', () => true, 20000);
@@ -350,6 +361,15 @@ try {
     const jitter = f => meanStat(f, 'tblend=all_mode=difference,signalstats', 'YAVG');
     const before = jitter(shaky), after = jitter(join(W, 'out2', 'v1.part'));
     check('stabilisation : moins d\'écart entre images', after < before * 0.7, `avant=${before.toFixed(2)} après=${after.toFixed(2)}`);
+    // Export de liste : une photo, puis la vidéo secouée. La vidéo doit rester stabilisée.
+    await clear();
+    await cmd({c: 'export', item: {...info2.sources[1], kind: 'image'}});
+    await until('exportDone', e => e.id === info2.sources[1].id, 60000);
+    await clear();
+    await cmd({c: 'export', item: info2.sources[0]});
+    await until('exportDone', e => e.id === info2.sources[0].id, 180000);
+    const afterPhoto = jitter(join(W, 'out2', 'v1.part'));
+    check('liste : vidéo après une photo, toujours stabilisée', afterPhoto < before * 0.7, `avant=${before.toFixed(2)} après=${afterPhoto.toFixed(2)}`);
   } finally { srv2.kill(); }
 } catch (e) {
   check('exécution du scénario', false, String(e.stack || e));

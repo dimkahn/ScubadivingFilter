@@ -219,7 +219,9 @@
   }
   function analyze(){
     if (!havePix) return null;
-    const d = pix, n = d.length/4, lp = S.lamp/100, am = lp > 0 ? ambientRatio(d, n) : NO_AMBIENT;
+    const d = pix, n = d.length/4, am = S.lamp > 0 ? ambientRatio(d, n) : NO_AMBIENT;
+    // Sans eau de référence mesurable, rien n'est considéré comme éclairé : la protection est coupée.
+    const lp = am === NO_AMBIENT ? 0 : S.lamp/100;
     let mR=0, mG=0, mB=0;
     for (let i=0;i<d.length;i+=4){ mR+=d[i]; mG+=d[i+1]; mB+=d[i+2]; }
     mR/=n*255; mG/=n*255; mB/=n*255;
@@ -255,8 +257,12 @@
   function blend(tgt, k){
     if (!haveP){ k = 1; haveP = true; }
     for (let i=0;i<3;i++){ P.lo[i]+=(tgt.lo[i]-P.lo[i])*k; P.sc[i]+=(tgt.sc[i]-P.sc[i])*k; P.mn[i]+=(tgt.mn[i]-P.mn[i])*k; }
-    P.al = tgt.al; P.be = tgt.be; P.lp = tgt.lp;
-    P.am += (tgt.am - P.am)*k; P.ll += (tgt.ll - P.ll)*k; P.ls += (tgt.ls - P.ls)*k;
+    P.al = tgt.al; P.be = tgt.be;
+    // La protection s'éteint ou revient en douceur ; le rapport de l'eau garde sa dernière valeur mesurée
+    // quand il n'y en a pas de nouvelle, au lieu de glisser vers la valeur sentinelle.
+    P.lp += (tgt.lp - P.lp)*k;
+    if (tgt.am !== NO_AMBIENT) P.am = P.am === NO_AMBIENT ? tgt.am : P.am + (tgt.am - P.am)*k;
+    P.ll += (tgt.ll - P.ll)*k; P.ls += (tgt.ls - P.ls)*k;
   }
 
   // ---------- Stabilisation ----------
@@ -318,6 +324,8 @@
   // ---------- Recadrage ----------
   const crop = {on:false, aspect:'none', x:0, y:0, w:1, h:1};
   let UIM = 'normal', lastSW = 0, lastSH = 0, exporting = false;
+  // Export ou capture photo : image en pleine résolution, recadrée, sans la ligne avant/après.
+  const fullRender = () => exporting || snapping;
   const ASPECTS = {'16:9':16/9, '9:16':9/16, '1:1':1, '4:5':4/5, '4:3':4/3, '3:4':3/4, '21:9':21/9};
   const normRatio = (sw, sh) => ASPECTS[crop.aspect] ? ASPECTS[crop.aspect] * sh / sw : null;
   function fitAspect(keepCenter){
@@ -332,11 +340,11 @@
   }
   const emitCrop = () => emit({type:'crop', on:crop.on, aspect:crop.aspect, x:crop.x, y:crop.y, w:crop.w, h:crop.h});
   function outDims(sw, sh){
-    if ((UIM !== 'normal' && !exporting) || !crop.on) return [sw, sh];
+    if ((UIM !== 'normal' && !fullRender()) || !crop.on) return [sw, sh];
     return [Math.max(2, Math.round(crop.w*sw/2)*2), Math.max(2, Math.round(crop.h*sh/2)*2)];
   }
   function viewWindow(){
-    if (UIM !== 'normal' && !exporting) return {x:0, y:0, w:1, h:1};
+    if (UIM !== 'normal' && !fullRender()) return {x:0, y:0, w:1, h:1};
     let w = 1, h = 1, cx = .5, cy = .5;
     if (crop.on){ w = crop.w; h = crop.h; cx = crop.x + w/2; cy = crop.y + h/2; }
     if (trackMine()){
@@ -720,11 +728,11 @@
   const PREVIEW_MAX = Math.min(1920, Math.round(Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1)));
   function resize(){
     const sw = srcW(), sh = srcH(); if (!sw || !sh) return;
-    if (crop.on && ASPECTS[crop.aspect] && (sw !== lastSW || sh !== lastSH) && lastSW && !exporting) fitAspect(true);
+    if (crop.on && ASPECTS[crop.aspect] && (sw !== lastSW || sh !== lastSH) && lastSW && !fullRender()) fitAspect(true);
     lastSW = sw; lastSH = sh;
     const [ow, oh] = outDims(sw, sh);
     // L'aperçu n'a pas besoin de la pleine résolution : moins de pixels, moins de chaleur et de batterie.
-    const k = exporting ? 1 : Math.min(1, PREVIEW_MAX / Math.max(ow, oh));
+    const k = fullRender() ? 1 : Math.min(1, PREVIEW_MAX / Math.max(ow, oh));
     const w = Math.max(2, Math.round(ow*k)), h = Math.max(2, Math.round(oh*k));
     if (view.width !== w || view.height !== h){ view.width = w; view.height = h; gl.viewport(0,0,w,h); }
     const dims = ow + 'x' + oh;
@@ -785,7 +793,7 @@
     gl.uniform3fv(U.lo, P.lo); gl.uniform3fv(U.sc, P.sc); gl.uniform3fv(U.mn, P.mn);
     gl.uniform1f(U.al, P.al); gl.uniform1f(U.be, P.be); gl.uniform1f(U.am, P.am); gl.uniform1f(U.lp, P.lp); gl.uniform1f(U.ll, P.ll); gl.uniform1f(U.ls, P.ls);
     gl.uniform1f(U.st, S.strength/100); gl.uniform1f(U.sa, S.sat/100); gl.uniform1f(U.ga, 100/S.bright);
-    gl.uniform1f(U.sp, (exporting || UIM !== 'normal' || !S.compare) ? 0 : S.split);
+    gl.uniform1f(U.sp, (fullRender() || UIM !== 'normal' || !S.compare) ? 0 : S.split);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     if (capTrack) capTrack.requestFrame();
   }
@@ -1255,7 +1263,7 @@
   // Image affichée, en pleine résolution et avec les corrections, écrite en JPEG. Le dessin et la lecture de la
   // toile doivent rester dans la même tâche : sans quoi le navigateur peut avoir déjà vidé le tampon.
   async function captureJpeg(id){
-    const was = exporting; exporting = true; snapping = true;
+    snapping = true;
     try {
       if (still){ dirty = true; processFrame(false, 0); }
       else { if (!sampleFrame()) throw new Error('Aucune image disponible'); render(); }
@@ -1266,10 +1274,10 @@
       sink.write(new Uint8Array(await blob.arrayBuffer()), 0);
       await sink.close();
       return {bytes:sink.bytes, w, h};
-    } finally { exporting = was; snapping = false; needSample = true; dirty = true; redraw = true; }
+    } finally { snapping = false; needSample = true; dirty = true; redraw = true; replayDeferred(); }
   }
   async function snapshot(id){
-    if (exporting) return emit({type:'snapshotError', id, msg:'Un export est en cours'});
+    if (exporting || snapping) return emit({type:'snapshotError', id, msg:exporting ? 'Un export est en cours' : 'Une photo est déjà en cours'});
     try {
       if (!still && !useDemo){
         video.pause();
@@ -1281,7 +1289,8 @@
   }
 
   async function exportItem(it){
-    if (exporting) return;
+    // Flutter attend une réponse pour chaque export : ne jamais l'ignorer en silence.
+    if (exporting) return emit({type:'exportError', id:it.id, msg:'Un autre export est déjà en cours'});
     if (UIM !== 'normal') setMode('normal');
     exporting = true;
     const t0 = performance.now(), file = new RemoteFile(it.url, it.size);
@@ -1303,12 +1312,17 @@
         try {
           // L'analyse s'arrête utilement à la fin de l'extrait.
           const covered = () => TM.done || a.t >= rOut || (TM.path.length && TM.path[TM.path.length - 1].t >= rOut);
-          while (!stopped && !covered() && !TM.dead && TM.state !== 'failed' && TR.anchor === a){ prog(TM.prog, 0); await delay(250); }
+          // Progression de l'analyse sur la plage utile (du sujet choisi à la fin de l'extrait), pas sur toute la vidéo.
+          const end = Math.min(rOut, duration() || rOut), span = end - a.t;
+          const analysed = () => span > 0 && TM.path.length ? Math.min(1, Math.max(0, (TM.path[TM.path.length - 1].t - a.t)/span)) : 0;
+          while (!stopped && !covered() && !TM.dead && TM.state !== 'failed' && TR.anchor === a){ prog(analysed(), 0); await delay(250); }
         } finally { stopFn = null; TM.force = false; mode = 'fast'; }
         if (stopped){ emit({type:'exportStopped', id:it.id}); return; }
       }
       if (canFast() && /\.(mp4|m4v|mov)$/i.test(it.name)){
-        current = it;
+        // Une photo affichée juste avant (export de liste) ne doit pas rester la source : sinon la stabilisation
+        // reste coupée (stabOn) et la position de lecture vaut celle de la photo.
+        current = it; still = null; useDemo = false;
         try {
           sink = new Sink(it.id);
           out = await fastExport(it, file, sink, prog, rIn, rOut);
@@ -1335,7 +1349,13 @@
   }
 
   // ---------- Commandes ----------
+  // Pendant une capture photo, l'image ne doit pas changer : les commandes qui la modifieraient attendent la fin
+  // de la capture, puis sont rejouées dans l'ordre (rien n'est perdu).
+  const DEFER_WHILE_SNAPPING = new Set(['play', 'pause', 'toggle', 'seek', 'load', 'demo', 'aspect', 'mode', 'orient', 'pickSubject', 'export']);
+  const deferred = [];
+  function replayDeferred(){ while (!snapping && deferred.length) window.Engine.cmd(deferred.shift()); }
   window.Engine = {cmd(m){
+    if (snapping && DEFER_WHILE_SNAPPING.has(m.c)){ deferred.push(m); return; }
     switch (m.c){
       case 'settings': {
         const stabChanged = m.v.stab !== undefined && m.v.stab !== S.stab;

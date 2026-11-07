@@ -538,6 +538,8 @@ class HistChart extends StatelessWidget {
 class _HistPainter extends CustomPainter {
   _HistPainter(this.data);
   final List<List<double>>? data;
+  // Palette au moment de la construction : un changement de thème doit redessiner, même si les données sont les mêmes.
+  final Palette palette = C.palette;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -581,7 +583,7 @@ class _HistPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_HistPainter old) => old.data != data;
+  bool shouldRepaint(_HistPainter old) => old.data != data || old.palette != palette;
 }
 
 // ---------- Vidéos ----------
@@ -757,7 +759,7 @@ class QueueTile extends StatelessWidget {
     switch (item.status) {
       case ItemStatus.run:
         final sp = item.speed > 0 ? ' · ×${item.speed.toStringAsFixed(1).replaceAll('.', ',')}' : '';
-        if (item.mode == 'analyse') return 'Analyse du sujet · ${(item.progress * 100).round()} %';
+        if (item.mode == 'analyse') return 'Analyse du sujet · ${(item.analysis * 100).round()} %';
         return '${(item.progress * 100).round()} %$sp${item.mode == 'rt' ? ' · temps réel' : ''}';
       case ItemStatus.done:
         return '$d · ${fmtSize(item.outputBytes)} en ${fmtLong(item.exportTime)}'
@@ -814,7 +816,7 @@ class QueueTile extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(3),
-                  child: LinearProgressIndicator(value: it.progress, minHeight: 5, backgroundColor: C.line),
+                  child: LinearProgressIndicator(value: it.shownProgress, minHeight: 5, backgroundColor: C.line),
                 ),
               ),
             if (it.status == ItemStatus.done)
@@ -923,7 +925,7 @@ class Filmstrip extends StatelessWidget {
                           left: 4,
                           right: 4,
                           bottom: 4,
-                          child: LinearProgressIndicator(value: it.progress, minHeight: 4, backgroundColor: const Color(0x66000000)),
+                          child: LinearProgressIndicator(value: it.shownProgress, minHeight: 4, backgroundColor: const Color(0x66000000)),
                         ),
                     ]),
                   ),

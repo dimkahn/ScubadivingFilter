@@ -171,7 +171,8 @@ class ExportBanner extends StatelessWidget {
       builder: (context, _) {
         final it = s.running;
         if (it == null) return const SizedBox.shrink();
-        final p = s.batchRunning ? s.overallProgress : it.progress;
+        final analysing = it.mode == 'analyse';
+        final p = s.batchRunning ? s.overallProgress : it.shownProgress;
         final position = s.batchRunning
             ? ' ${s.queue.where((i) => i.status == ItemStatus.done).length + 1}/${s.queue.where((i) => i.status != ItemStatus.err).length}'
             : '';
@@ -187,7 +188,9 @@ class ExportBanner extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '${(p * 100).round()} %${it.progress > .02 ? ' · ${fmtLong(s.remainingSeconds)}' : ''}',
+                    analysing && !s.batchRunning
+                        ? 'Analyse du sujet · ${(p * 100).round()} %'
+                        : '${(p * 100).round()} %${it.progress > .02 ? ' · ${fmtLong(s.remainingSeconds)}' : ''}',
                     style: T.mono(12),
                   ),
                 ]),

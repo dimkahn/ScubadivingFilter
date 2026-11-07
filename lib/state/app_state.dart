@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../model/crop.dart';
+import '../model/media.dart';
 import '../model/settings.dart';
 
 /// Canal vers le moteur vidéo (WebView en production, simulé dans les tests).
@@ -74,8 +75,14 @@ class VideoItem {
   /// Photos extraites de cette vidéo, supprimées avec elle.
   final photos = <File>[];
 
-  static const _imageExt = {'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'};
-  bool get isImage => _imageExt.contains(name.split('.').last.toLowerCase());
+  bool get isImage => isImageName(name);
+  String get baseName => baseNameOf(name);
+
+  /// Pendant l'analyse du sujet qui précède l'export, sa progression (0 à 1). [progress] reste celle de l'export.
+  double analysis = 0;
+
+  /// Ce qu'affiche la barre de l'élément : l'analyse tant qu'elle dure, puis l'export.
+  double get shownProgress => mode == 'analyse' ? analysis : progress;
   bool get isTrimmed => trimIn > 0 || trimOut != null;
   double get clipDuration => isImage ? 0 : (trimOut ?? duration) - trimIn;
   String get formatError => isImage
@@ -207,7 +214,7 @@ class AppState extends ChangeNotifier {
   double get remainingSeconds {
     final sp = running?.speed ?? 0;
     final left = batchRunning ? totalDuration - doneDuration
-        : (running == null ? 0.0 : running!.duration * (1 - running!.progress));
+        : (running == null ? 0.0 : running!.clipDuration * (1 - running!.progress));
     return left / (sp > 0 ? sp : 1);
   }
 
@@ -268,10 +275,16 @@ class AppState extends ChangeNotifier {
         });
       case 'exportProgress':
         _item(e['id'])?.let((it) {
-          it.progress = (e['p'] as num).toDouble();
+          it.mode = e['mode'] as String? ?? it.mode;
+          final p = (e['p'] as num).toDouble();
+          // L'analyse du sujet n'est pas de l'export : elle ne fait pas avancer la progression ni l'estimation.
+          if (it.mode == 'analyse') {
+            it.analysis = p;
+          } else {
+            it.progress = p;
+          }
           final sp = (e['speed'] as num?)?.toDouble() ?? 0;
           if (sp > 0) it.speed = sp;
-          it.mode = e['mode'] as String? ?? it.mode;
           exportTick.value++;
         });
       case 'exportDone':
@@ -590,12 +603,22 @@ class AppState extends ChangeNotifier {
     final id = e['id'] as String;
     final it = _snapshots.remove(id);
     try {
-      if (it == null) throw StateError('vidéo retirée');
-      final base = it.name.contains('.') ? it.name.substring(0, it.name.lastIndexOf('.')) : it.name;
+      if (it == null) {
+        await host.discardOutput(id);
+        throw StateError('capture inconnue');
+      }
       final at = (e['t'] as num).toStringAsFixed(1).replaceAll('.', '_');
-      final file = await host.finishOutput(id, '$base-photo-${at}s.jpg');
-      it.photos.add(file);
+      final file = await host.finishOutput(id, '${it.baseName}-photo-${at}s.jpg');
+      // La vidéo a pu être retirée pendant la capture : la photo est quand même enregistrée, puis le fichier
+      // temporaire, qui n'a plus de propriétaire, est supprimé.
+      final orphan = !queue.contains(it);
+      if (!orphan) it.photos.add(file);
       await device.saveToGallery(file.path, file.uri.pathSegments.last);
+      if (orphan) {
+        if (file.existsSync()) file.deleteSync();
+        _say('Photo enregistrée dans la galerie.');
+        return;
+      }
       _say('Photo enregistrée dans la galerie.', actionLabel: 'Partager', action: () => unawaited(device.share(file.path)));
     } catch (err) {
       _say('Photo impossible : $err');
@@ -613,6 +636,7 @@ class AppState extends ChangeNotifier {
   Future<void> remove(VideoItem it) async {
     if (it == running) return;
     queue.remove(it);
+    // Une capture en cours de cette vidéo se termine sans elle (voir _onSnapshot).
     host.unregisterSource(it.id);
     _deleteOutput(it);
     for (final f in it.photos) {
@@ -691,6 +715,7 @@ class AppState extends ChangeNotifier {
     it
       ..status = ItemStatus.run
       ..progress = 0
+      ..analysis = 0
       ..speed = 0
       ..why = ''
       ..error = '';
@@ -710,9 +735,8 @@ class AppState extends ChangeNotifier {
     final it = _item(e['id']);
     if (it == null) return;
     try {
-      final base = it.name.contains('.') ? it.name.substring(0, it.name.lastIndexOf('.')) : it.name;
       final suffix = it.isTrimmed && !it.isImage ? '-extrait' : '-corrigee';
-      it.output = await host.finishOutput(it.id, '$base$suffix.${e['ext']}');
+      it.output = await host.finishOutput(it.id, '${it.baseName}$suffix.${e['ext']}');
       it.outputBytes = (e['bytes'] as num).toInt();
       it.exportTime = (e['time'] as num).toDouble();
       it.muted = e['muted'] as bool? ?? false;

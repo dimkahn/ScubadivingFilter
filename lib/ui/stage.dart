@@ -230,6 +230,8 @@ class CropPainter extends CustomPainter {
   CropPainter(this.crop, this.track);
   final CropRect crop;
   final TrackInfo track;
+  // Palette au moment de la construction : un changement de thème doit redessiner, même si les données sont les mêmes.
+  final Palette palette = C.palette;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -287,7 +289,7 @@ class CropPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(CropPainter old) => old.crop != crop || old.track != track;
+  bool shouldRepaint(CropPainter old) => old.crop != crop || old.track != track || old.palette != palette;
 }
 
 // ---------- Mode sujet ----------
@@ -329,6 +331,8 @@ class _SelectLayerState extends State<_SelectLayer> {
 class _SelectionPainter extends CustomPainter {
   _SelectionPainter(this.a, this.b);
   final Offset? a, b;
+  // Palette au moment de la construction : un changement de thème doit redessiner, même si les données sont les mêmes.
+  final Palette palette = C.palette;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -344,5 +348,5 @@ class _SelectionPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_SelectionPainter old) => old.a != a || old.b != b;
+  bool shouldRepaint(_SelectionPainter old) => old.a != a || old.b != b || old.palette != palette;
 }

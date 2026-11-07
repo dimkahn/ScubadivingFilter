@@ -2,7 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rouge_retrouve/model/crop.dart';
+import 'package:rouge_retrouve/state/app_state.dart';
 import 'package:rouge_retrouve/theme.dart';
+import 'package:rouge_retrouve/ui/stage.dart';
 
 // Contraste WCAG entre deux couleurs opaques.
 double contrast(Color a, Color b) {
@@ -27,6 +30,16 @@ void main() {
       });
     });
   }
+
+  test('le cadre se redessine quand le thème change, même sans bouger', () {
+    const crop = CropRect(.2, .2, .5, .5), track = TrackInfo('ok');
+    C.use(Brightness.dark);
+    final before = CropPainter(crop, track);
+    expect(CropPainter(crop, track).shouldRepaint(before), isFalse);
+    C.use(Brightness.light);
+    expect(CropPainter(crop, track).shouldRepaint(before), isTrue);
+    C.use(Brightness.dark);
+  });
 
   test('le thème suit la palette choisie', () {
     C.use(Brightness.light);
