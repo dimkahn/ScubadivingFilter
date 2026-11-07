@@ -43,11 +43,15 @@ const rgbAt = (file, x, y, w, h, ss = 0) => [...execFileSync('ffmpeg', ['-hide_b
   '-vf', `crop=${w}:${h}:${x}:${y},scale=1:1:flags=area`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])];
 const near = (a, b, tol) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
 
+// Vidéo très détaillée à fort débit : l'export ne doit pas retomber au plancher de débit.
+const rich = join(W, 'riche.mp4');
+ff('-f', 'lavfi', '-i', 'testsrc2=s=1280x720:r=30:d=3,noise=alls=40:allf=t', '-c:v', 'libx264', '-b:v', '20M', '-minrate', '20M', '-maxrate', '20M', '-bufsize', '20M', '-pix_fmt', 'yuv420p', rich);
+
 // ---------- Serveur et navigateur ----------
 const outDir = join(W, 'out');
-const srv = spawn('dart', ['tool/engine_e2e/serve.dart', outDir, land, portrait, webm, moving, photo, lampPhoto, waterPhoto, lampVideo], {stdio: ['ignore', 'pipe', 'inherit']});
+const srv = spawn('dart', ['tool/engine_e2e/serve.dart', outDir, land, portrait, webm, moving, photo, lampPhoto, waterPhoto, lampVideo, rich], {stdio: ['ignore', 'pipe', 'inherit']});
 const info = await new Promise(res => srv.stdout.once('data', d => res(JSON.parse(String(d)))));
-const [L, P, Wb, M, ImgSrc, LampSrc, WaterSrc, LampV] = info.sources;
+const [L, P, Wb, M, ImgSrc, LampSrc, WaterSrc, LampV, Rich] = info.sources;
 const Img = {...ImgSrc, kind: 'image'};
 const port = 9300 + Math.floor(Math.random() * 500);
 const chrome = spawn('google-chrome', ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${join(W, 'chrome')}`,
@@ -201,6 +205,19 @@ try {
   done = await exportOf(LampV);
   const wBefore = rgbAt(part(LampV.id), 40, 40, 200, 200, 1.5), wAfter = rgbAt(part(LampV.id), 40, 40, 200, 200, 3.5);
   check('lampe : l\'eau ne rougit pas quand la lampe s\'allume', done.type === 'exportDone' && wAfter[0] <= wBefore[0] + 8, `${wBefore} puis ${wAfter}`);
+
+  // Débit d'export : suit une source riche, sans gonfler une source légère.
+  const videoBps = f => { const o = JSON.parse(sh('ffprobe', '-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=bit_rate', '-of', 'json', f)); return +o.streams[0].bit_rate; };
+  await reload();
+  await cmd({c: 'settings', v: {strength: 100, stab: false, compare: false}});
+  done = await exportOf(Rich);
+  const richIn = videoBps(rich), richOut = done.type === 'exportDone' ? videoBps(part(Rich.id)) : 0;
+  check('débit : l\'export suit une source à fort débit', richOut > richIn * .8, `source ${(richIn / 1e6).toFixed(1)} Mbit/s, sortie ${(richOut / 1e6).toFixed(1)} Mbit/s`);
+  await reload();
+  await cmd({c: 'settings', v: {strength: 100, stab: false, compare: false}});
+  done = await exportOf(L);
+  const landOut = done.type === 'exportDone' ? videoBps(part(L.id)) : Infinity;
+  check('débit : une source légère reste au plancher', landOut <= 9e6, `sortie ${(landOut / 1e6).toFixed(1)} Mbit/s`);
 
   // Arrêt en cours d'export : le moteur revient à l'état normal
   await reload();

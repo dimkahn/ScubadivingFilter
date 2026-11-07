@@ -30,10 +30,10 @@
   `;
   // Lampe : un pixel bien plus rouge que l'eau alentour reçoit une vraie lumière blanche. La correction pensée pour
   // l'eau le saturerait, il garde donc ses couleurs. am = rapport rouge/(vert ou bleu) de l'eau. Même calcul : lampWeight.
-  const LAMP_FROM = .2, LAMP_SPAN = .35, LAMP_DARK = .08, LAMP_DARK_SPAN = .12;
+  const LAMP_FROM = .2, LAMP_SPAN = .35, LAMP_DARK = .08, LAMP_DARK_SPAN = .12, LAMP_PUNCH = .6, LAMP_MAX_GAIN = 1.25, LAMP_MIN_PIXELS = 30;
   const FS = PREC + `
   varying vec2 v; uniform sampler2D t;
-  uniform vec3 lo, sc, mn; uniform float al, be, st, sa, ga, sp, am, lp; uniform vec4 win; uniform vec3 ax, ay;
+  uniform vec3 lo, sc, mn; uniform float al, be, st, sa, ga, sp, am, lp, ll, ls; uniform vec4 win; uniform vec3 ax, ay;
   void main(){
     vec2 p = win.xy + vec2(v.x, 1.0 - v.y)*win.zw;
     vec3 c = texture2D(t, vec2(dot(ax.xy, p) + ax.z, dot(ay.xy, p) + ay.z)).rgb;
@@ -44,7 +44,11 @@
     float e = max(c.g, c.b);
     float w = lp*smoothstep(am + ${LAMP_FROM}, am + ${LAMP_FROM + LAMP_SPAN}, c.r/max(e, 0.02))
       *smoothstep(${LAMP_DARK}, ${LAMP_DARK + LAMP_DARK_SPAN}, max(c.r, e));
-    x = mix(x, c, w);
+    // La zone éclairée a son propre contraste, le même sur les trois couleurs : du relief, sans dominante.
+    vec3 lit = clamp((c-ll)*ls, 0.0, 1.0);
+    float lm = dot(lit, vec3(0.2126,0.7152,0.0722));
+    lit = clamp(lit*mix(lm, smoothstep(0.0, 1.0, lm), ${LAMP_PUNCH})/max(lm, 0.02), 0.0, 1.0);
+    x = mix(x, lit, w);
     x = pow(x, vec3(ga));
     float l = dot(x, vec3(0.2126,0.7152,0.0722));
     x = clamp(mix(vec3(l), x, sa), 0.0, 1.0);
@@ -62,7 +66,7 @@
   const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
   const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  const U = {}; ['lo','sc','mn','al','be','st','sa','ga','sp','am','lp','win','ax','ay'].forEach(n => U[n] = gl.getUniformLocation(prog, n));
+  const U = {}; ['lo','sc','mn','al','be','st','sa','ga','sp','am','lp','ll','ls','win','ax','ay'].forEach(n => U[n] = gl.getUniformLocation(prog, n));
   const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
   [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T].forEach(k => gl.texParameteri(gl.TEXTURE_2D, k, gl.CLAMP_TO_EDGE));
@@ -189,12 +193,19 @@
 
   // ---------- Analyse des couleurs ----------
   const NO_AMBIENT = 9;
-  const P = {lo:[0,0,0], sc:[1,1,1], mn:[.5,.5,.5], al:0, be:0, am:NO_AMBIENT, lp:1}; let haveP = false;
+  const P = {lo:[0,0,0], sc:[1,1,1], mn:[.5,.5,.5], al:0, be:0, am:NO_AMBIENT, lp:1, ll:0, ls:1}; let haveP = false;
   const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
   const smooth01 = t => { t = clamp01(t); return t*t*(3-2*t); };
   // Part de lumière de lampe dans un pixel (0 à 1) : même calcul que le shader.
   const lampWeight = (r, g, b, am) => { const e = Math.max(g, b);
     return smooth01((r/Math.max(e, .02) - am - LAMP_FROM)/LAMP_SPAN)*smooth01((Math.max(r, e) - LAMP_DARK)/LAMP_DARK_SPAN); };
+  // Couleur d'un pixel éclairé : même calcul que le shader.
+  function litColor(r, g, b){
+    const ch = [r, g, b].map(v => clamp01((v - P.ll)*P.ls));
+    const l = 0.2126*ch[0] + 0.7152*ch[1] + 0.0722*ch[2];
+    const k = (l + (smooth01(l) - l)*LAMP_PUNCH)/Math.max(l, .02);
+    return ch.map(v => clamp01(v*k));
+  }
   // Rapport rouge/(vert ou bleu) de l'eau : 30e centile, pour rester sur l'eau même si la lampe éclaire une grande partie
   // de l'image. Sans assez de pixels visibles, rien n'est considéré comme éclairé.
   function ambientRatio(d, n){
@@ -226,13 +237,26 @@
       acc=0; for (let i=0;i<256;i++){ acc+=h[i]; if (acc>=hi){ b=i; break; } }
       if (b-a < 12) b = Math.min(255, a+12); return [a/255, b/255]; };
     const ch = [pct(hR), pct(hG), pct(hB)];
-    return {lo: ch.map(c=>c[0]), sc: ch.map(c=>Math.min(5, 1/(c[1]-c[0]))), mn:[mR,mG,mB], al, be, am, lp};
+    // Niveaux de la zone éclairée. Le gain reste limité : une surface unie ne doit ni s'assombrir ni tourner au gris.
+    const hLo = new Uint32Array(256), hHi = new Uint32Array(256); let nLit = 0;
+    if (lp > 0) for (let i=0;i<d.length;i+=4){
+      if (lampWeight(d[i]/255, d[i+1]/255, d[i+2]/255, am) < .5) continue;
+      hLo[Math.min(d[i], d[i+1], d[i+2])]++; hHi[Math.max(d[i], d[i+1], d[i+2])]++; nLit++;
+    }
+    let ll = 0, ls = 1;
+    if (nLit >= LAMP_MIN_PIXELS){
+      let acc = 0, a = 0, b = 255;
+      for (let i=0;i<256;i++){ acc+=hLo[i]; if (acc>nLit*clip){ a=i; break; } }
+      acc = 0; for (let i=0;i<256;i++){ acc+=hHi[i]; if (acc>=nLit*(1-clip)){ b=i; break; } }
+      ll = Math.min(.08, a/255); ls = Math.min(LAMP_MAX_GAIN, 1/(Math.max(.8, b/255) - ll));
+    }
+    return {lo: ch.map(c=>c[0]), sc: ch.map(c=>Math.min(5, 1/(c[1]-c[0]))), mn:[mR,mG,mB], al, be, am, lp, ll, ls};
   }
   function blend(tgt, k){
     if (!haveP){ k = 1; haveP = true; }
     for (let i=0;i<3;i++){ P.lo[i]+=(tgt.lo[i]-P.lo[i])*k; P.sc[i]+=(tgt.sc[i]-P.sc[i])*k; P.mn[i]+=(tgt.mn[i]-P.mn[i])*k; }
     P.al = tgt.al; P.be = tgt.be; P.lp = tgt.lp;
-    P.am += (tgt.am - P.am)*k;
+    P.am += (tgt.am - P.am)*k; P.ll += (tgt.ll - P.ll)*k; P.ls += (tgt.ls - P.ls)*k;
   }
 
   // ---------- Stabilisation ----------
@@ -759,7 +783,7 @@
     const W = viewWindow();
     gl.uniform4f(U.win, W.x, W.y, W.w, W.h); setAffine(U.ax, U.ay);
     gl.uniform3fv(U.lo, P.lo); gl.uniform3fv(U.sc, P.sc); gl.uniform3fv(U.mn, P.mn);
-    gl.uniform1f(U.al, P.al); gl.uniform1f(U.be, P.be); gl.uniform1f(U.am, P.am); gl.uniform1f(U.lp, P.lp);
+    gl.uniform1f(U.al, P.al); gl.uniform1f(U.be, P.be); gl.uniform1f(U.am, P.am); gl.uniform1f(U.lp, P.lp); gl.uniform1f(U.ll, P.ll); gl.uniform1f(U.ls, P.ls);
     gl.uniform1f(U.st, S.strength/100); gl.uniform1f(U.sa, S.sat/100); gl.uniform1f(U.ga, 100/S.bright);
     gl.uniform1f(U.sp, (exporting || UIM !== 'normal' || !S.compare) ? 0 : S.split);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -777,7 +801,9 @@
       hO[0][Math.min(HB-1, r*HB|0)]++; hO[1][Math.min(HB-1, g*HB|0)]++; hO[2][Math.min(HB-1, b*HB|0)]++;
       const rr = r + P.al*(P.mn[1]-P.mn[0])*(1-r)*g, bb = b + P.be*(P.mn[1]-P.mn[2])*(1-b)*g;
       const w = P.lp*lampWeight(r, g, b, P.am);
-      let x0 = Math.pow(clamp01((rr-P.lo[0])*P.sc[0])*(1-w) + r*w, ga), x1 = Math.pow(clamp01((g-P.lo[1])*P.sc[1])*(1-w) + g*w, ga), x2 = Math.pow(clamp01((bb-P.lo[2])*P.sc[2])*(1-w) + b*w, ga);
+      const lit = w > 0 ? litColor(r, g, b) : null;
+      const mixLit = (v, c) => Math.pow(w > 0 ? v*(1-w) + lit[c]*w : v, ga);
+      let x0 = mixLit(clamp01((rr-P.lo[0])*P.sc[0]), 0), x1 = mixLit(clamp01((g-P.lo[1])*P.sc[1]), 1), x2 = mixLit(clamp01((bb-P.lo[2])*P.sc[2]), 2);
       const l = 0.2126*x0 + 0.7152*x1 + 0.0722*x2;
       x0 = clamp01(l + (x0-l)*sa); x1 = clamp01(l + (x1-l)*sa); x2 = clamp01(l + (x2-l)*sa);
       x0 = r + (x0-r)*st; x1 = g + (x1-g)*st; x2 = b + (x2-b)*st;
@@ -993,7 +1019,14 @@
     const c = ['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
     return c.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
   }
-  async function record(sink, onProg, rIn = 0, rOut = Infinity){
+  // Débit d'export : jamais moins que la source, à surface égale, pour ne pas perdre de détail au réencodage.
+  // La marge couvre la seconde génération de compression ; H.264 demande en plus davantage de débit que HEVC.
+  const MAX_BITRATE = 100e6;
+  function exportBitrate(pixels, fps, srcBps, srcPixels, hevc){
+    const fromSource = srcBps > 0 && srcPixels > 0 ? srcBps*Math.min(1, pixels/srcPixels)*(hevc ? 1.6 : 1.15) : 0;
+    return Math.round(Math.min(MAX_BITRATE, Math.max(8e6, pixels*fps*0.1, fromSource)));
+  }
+  async function record(sink, onProg, rIn = 0, rOut = Infinity, srcBytes = 0){
     if (!window.MediaRecorder || !view.captureStream) throw new Error('L\'export en temps réel n\'est pas pris en charge sur cet appareil.');
     const manual = typeof CanvasCaptureMediaStreamTrack !== 'undefined' && 'requestFrame' in CanvasCaptureMediaStreamTrack.prototype;
     const stream = view.captureStream(manual ? 0 : 30);
@@ -1007,7 +1040,7 @@
       audioDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
     } catch(e){ /* pas de piste son exploitable : export muet */ }
     const mime = pickMime();
-    const bitrate = Math.min(40e6, Math.max(6e6, srcW()*srcH()*30*0.12));
+    const bitrate = exportBitrate(srcW()*srcH(), 30, duration() > 0 ? srcBytes*8/duration() : 0, srcW()*srcH(), false);
     let rec;
     try { rec = new MediaRecorder(stream, mime ? {mimeType:mime, videoBitsPerSecond:bitrate} : {videoBitsPerSecond:bitrate}); }
     catch(e){ stream.getVideoTracks().forEach(t => t.stop()); throw new Error('Impossible de démarrer l\'enregistrement : ' + e.message); }
@@ -1101,12 +1134,17 @@
     if (!(await VideoDecoder.isConfigSupported(decCfg).catch(() => ({}))).supported) throw new Unsupported('décodage ' + vt.codec + ' non pris en charge');
     let aDesc = null;
     if (at){ aDesc = aacDesc(mp4.getTrackById(at.id)); if (!/^mp4a\.40/.test(at.codec) || !aDesc) throw new Unsupported('son ' + at.codec + ' non recopiable'); }
-    const bitrate = Math.round(Math.min(60e6, Math.max(8e6, W*H*fps*0.1)));
+    const srcBps = vt.bitrate > 0 ? vt.bitrate : file.size*8*vt.timescale/vt.duration;
+    const bitrate = exportBitrate(W*H, fps, srcBps, SW*SH, /^(hvc|hev)/.test(vt.codec));
     let encCfg = null;
-    for (const codec of ['avc1.640034','avc1.640033','avc1.64002a','avc1.640028','avc1.4d0034','avc1.42e034','vp09.00.51.08','vp09.00.41.08','vp09.00.10.08']){
-      const c = {codec, width: W, height: H, bitrate, framerate: fps};
-      if (codec.startsWith('avc')) c.avc = {format: 'avc'};
-      try { if ((await VideoEncoder.isConfigSupported(c)).supported){ encCfg = c; break; } } catch(e){}
+    // Si l'encodeur refuse ce débit, on en essaie un plus bas plutôt que de renoncer à la conversion rapide.
+    for (const rate of [...new Set([bitrate, Math.min(bitrate, 60e6), Math.min(bitrate, 40e6), Math.min(bitrate, 20e6)])]){
+      for (const codec of ['avc1.640034','avc1.640033','avc1.64002a','avc1.640028','avc1.4d0034','avc1.42e034','vp09.00.51.08','vp09.00.41.08','vp09.00.10.08']){
+        const c = {codec, width: W, height: H, bitrate: rate, framerate: fps};
+        if (codec.startsWith('avc')) c.avc = {format: 'avc'};
+        try { if ((await VideoEncoder.isConfigSupported(c)).supported){ encCfg = c; break; } } catch(e){}
+      }
+      if (encCfg) break;
     }
     if (!encCfg) throw new Unsupported('aucun encodeur vidéo disponible');
 
@@ -1286,7 +1324,7 @@
         mode = 'rt';
         await loadItem(it);
         sink = new Sink(it.id);
-        out = await record(sink, prog, rIn, rOut);
+        out = await record(sink, prog, rIn, rOut, file.size);
         if (!out){ await sink.chain; emit({type:'exportStopped', id:it.id}); return; }
       }
       await sink.close();
