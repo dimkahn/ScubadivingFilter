@@ -10,6 +10,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rouge_retrouve/main.dart';
 import 'package:rouge_retrouve/state/app_state.dart';
+import 'package:rouge_retrouve/theme.dart';
+import 'package:rouge_retrouve/ui/home_screen.dart';
 
 import 'support.dart';
 
@@ -47,7 +49,10 @@ void main() {
   });
   tearDownAll(() => dir.deleteSync(recursive: true));
 
-  Future<(AppState, FakeEngine)> pumpApp(WidgetTester tester, Size size) async {
+  // Thème sombre par défaut : les captures de référence existantes restent valables.
+  Future<(AppState, FakeEngine)> pumpApp(WidgetTester tester, Size size, {Brightness brightness = Brightness.dark}) async {
+    tester.platformDispatcher.platformBrightnessTestValue = brightness;
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     tester.view.padding = FakeViewPadding.zero;
@@ -145,6 +150,54 @@ void main() {
       });
     });
   }
+
+  group('thème clair', () {
+    for (final MapEntry(key: name, value: size) in devices.entries) {
+      testWidgets('$name : tous les outils, sans débordement', (t) async {
+        final (s, e) = await pumpApp(t, size, brightness: Brightness.light);
+        withVideos(s, e, frame);
+        for (final tool in Tool.values) {
+          s.setTool(tool);
+          await t.pump();
+          expect(t.takeException(), isNull);
+          if (name == 'phone_portrait') await shot(t, 'light_${name}_${tool.name}');
+          await expectLater(t, meetsGuideline(androidTapTargetGuideline));
+        }
+      });
+    }
+
+    testWidgets('suit le changement de thème du système, sans perdre l\'état', (t) async {
+      final (s, e) = await pumpApp(t, devices['phone_portrait']!);
+      withVideos(s, e, frame);
+      s.setTool(Tool.color);
+      await t.pump();
+      Color bg() => Theme.of(t.element(find.byType(HomeScreen))).scaffoldBackgroundColor;
+      // Le titre lit la palette directement : sa couleur prouve que tout l'écran a été reconstruit.
+      Color? title() {
+        final w = t.widget<RichText>(find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().startsWith('Scuba See Red')).first);
+        TextStyle? first;
+        w.text.visitChildren((span) {
+          if (span is TextSpan && span.text == 'Scuba See ') first = span.style;
+          return first == null;
+        });
+        return first?.color;
+      }
+      expect(bg(), darkPalette.bg);
+      expect(title(), darkPalette.fg);
+      final state = t.state(find.byType(HomeScreen));
+      t.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      await t.pump();
+      expect(bg(), lightPalette.bg);
+      expect(title(), lightPalette.fg);
+      expect(t.state(find.byType(HomeScreen)), same(state));
+      expect(s.tool, Tool.color);
+      expect(t.takeException(), isNull);
+      t.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      await t.pump();
+      expect(bg(), darkPalette.bg);
+      expect(title(), darkPalette.fg);
+    });
+  });
 
   group('gestes sur l\'image', () {
     Rect stageRect(WidgetTester t) => t.getRect(find.byType(Image).first);

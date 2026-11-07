@@ -49,16 +49,64 @@ class _Host implements MediaHost {
   Future<void> discardOutput(String id) => server.discardOutput(id);
 }
 
-class RougeApp extends StatelessWidget {
+/// Suit le thème clair ou sombre du système, y compris pendant que l'application est ouverte.
+class RougeApp extends StatefulWidget {
   const RougeApp({super.key, required this.state, required this.surface});
   final AppState state;
   final Widget surface;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
+  State<RougeApp> createState() => _RougeAppState();
+}
+
+class _RougeAppState extends State<RougeApp> with WidgetsBindingObserver {
+  final _home = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    C.use(WidgetsBinding.instance.platformDispatcher.platformBrightness);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    final b = WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    if (b == C.brightness) return;
+    C.use(b);
+    setState(() {});
+    // Les écrans lisent la palette directement : on les reconstruit tous, sans perdre leur état
+    // (lecteur vidéo, feuilles et dialogues ouverts compris).
+    void rebuild(Element e) {
+      e.markNeedsBuild();
+      e.visitChildren(rebuild);
+    }
+    (context as Element).visitChildren(rebuild);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = C.brightness == Brightness.dark;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark).copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+      ),
+      child: MaterialApp(
         title: 'Scuba See Red',
         debugShowCheckedModeBanner: false,
         theme: buildTheme(),
-        home: HomeScreen(state: state, surface: surface),
-      );
+        // Bascule d'un coup : les écrans qui lisent la palette directement changent aussi d'un coup.
+        themeAnimationDuration: Duration.zero,
+        home: HomeScreen(key: _home, state: widget.state, surface: widget.surface),
+      ),
+    );
+  }
 }

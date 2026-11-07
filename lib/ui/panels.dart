@@ -99,7 +99,7 @@ class ValueSlider extends StatelessWidget {
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 40, minHeight: 32),
                 iconSize: 17,
-                icon: const Icon(Icons.undo, color: C.muted),
+                icon: Icon(Icons.undo, color: C.muted),
                 onPressed: () => state.setValue(spec.key, spec.def),
               ),
             Text(spec.format(v), style: T.mono(13)),
@@ -162,7 +162,7 @@ class ChoiceTile extends StatelessWidget {
         button: true,
         selected: selected,
         child: Material(
-          color: selected ? const Color(0x22FF6A4D) : C.panel2,
+          color: selected ? C.accent.withAlpha(0x22) : C.panel2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
             side: BorderSide(color: selected ? C.accent : C.line, width: selected ? 1.5 : 1),
@@ -542,7 +542,7 @@ class _HistPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = C.panel2);
-    final grid = Paint()..color = const Color(0x12FFFFFF);
+    final grid = Paint()..color = C.fg.withAlpha(0x12);
     for (var q = 1; q < 4; q++) {
       canvas.drawLine(Offset(size.width * q / 4, 0), Offset(size.width * q / 4, size.height), grid);
     }
@@ -557,7 +557,7 @@ class _HistPainter extends CustomPainter {
       }
     }
     canvas.saveLayer(Offset.zero & size, Paint());
-    const colors = [C.r, C.g, C.b];
+    final colors = [C.r, C.g, C.b];
     for (var c = 0; c < 3; c++) {
       final ch = h[c];
       final path = Path()..moveTo(0, size.height);
@@ -644,7 +644,7 @@ class VideosPanel extends StatelessWidget {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.video_library_outlined, size: 40, color: C.muted),
+            Icon(Icons.video_library_outlined, size: 40, color: C.muted),
             const SizedBox(height: 12),
             Text('Retrouvez les couleurs de vos plongées', textAlign: TextAlign.center, style: T.display(20)),
             const SizedBox(height: 8),
@@ -726,9 +726,9 @@ class Thumb extends StatelessWidget {
         child: Container(
           width: width,
           height: height,
-          color: Colors.black,
+          color: item.thumb == null ? C.panel2 : Colors.black,
           child: item.thumb == null
-              ? const Icon(Icons.movie_outlined, color: C.muted)
+              ? Icon(Icons.movie_outlined, color: C.muted)
               : Image.memory(item.thumb!, fit: BoxFit.cover, gaplessPlayback: true),
         ),
       );
@@ -804,7 +804,7 @@ class QueueTile extends StatelessWidget {
                 if (it != s.running)
                   IconButton(
                     tooltip: 'Retirer de la liste',
-                    icon: const Icon(Icons.close, color: C.muted),
+                    icon: Icon(Icons.close, color: C.muted),
                     onPressed: () => s.remove(it),
                   ),
               ]),
@@ -839,7 +839,7 @@ class QueueTile extends StatelessWidget {
                     child: it.saved
                         ? OutlinedButton.icon(
                             onPressed: () => s.save(it),
-                            icon: const Icon(Icons.check, size: 18, color: C.ok),
+                            icon: Icon(Icons.check, size: 18, color: C.ok),
                             label: const Text('Enregistrée'),
                           )
                         : FilledButton.icon(

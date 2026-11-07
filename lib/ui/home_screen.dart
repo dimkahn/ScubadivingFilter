@@ -231,7 +231,7 @@ class _TopBar extends StatelessWidget {
         IconButton(
           tooltip: 'Comment ça marche',
           onPressed: () => showHelpSheet(context),
-          icon: const Icon(Icons.help_outline, color: C.muted),
+          icon: Icon(Icons.help_outline, color: C.muted),
         ),
         const SizedBox(width: 4),
         _PrimaryButton(state: state, onPressed: onPrimary),
