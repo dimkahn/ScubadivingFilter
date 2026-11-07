@@ -1,7 +1,7 @@
 name: rouge_retrouve
 description: "Correcteur de couleurs et stabilisateur pour vidéos de plongée."
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: ^3.13.0
